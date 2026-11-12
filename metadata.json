@@ -1,0 +1,6 @@
+{
+  "name": "Eto'nun ADHD'ye Yenik Düşmemiş Asistanı Zehir Bebek",
+  "description": "Çoklu proje destekli ve ekip paylaşımlı tiyatro sahne tasarımı ve metin analizi asistanı.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
