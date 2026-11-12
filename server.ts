@@ -226,13 +226,19 @@ function extractDynamicMetadataKeywords(text: string): string[] {
       lowercaseLine.includes('copyright') ||
       lowercaseLine.includes('©');
       
-    // Check if the line consists entirely of words starting with uppercase letters
-    const words = line.split(/\s+/);
-    const isMainlyProperNouns = words.length > 0 && words.length < 6 && words.every(w => {
+    // Check if the line looks like a cover-page title or author credit:
+    // several words, all starting with an uppercase letter.
+    //
+    // At least TWO words is required on purpose. A single all-caps word on its
+    // own line is far more likely to be a character cue in a play ("HANNAY")
+    // than an author name — and treating character names as metadata used to
+    // strip every one of that character's lines from the script.
+    const words = line.split(/\s+/).filter(Boolean);
+    const isMainlyProperNouns = words.length >= 2 && words.length < 6 && words.every(w => {
       const firstChar = w.charAt(0);
       return firstChar === firstChar.toUpperCase() && /[A-ZÇĞİÖŞÜ]/.test(firstChar);
     });
-    
+
     if (hasMetadataLabel || isMainlyProperNouns) {
       words.forEach(w => {
         const cleanWord = w.replace(/[^a-zA-ZçğışöüÇĞİŞÖÜ0-9]/g, '').toLowerCase();
@@ -324,52 +330,79 @@ function preprocessScriptText(text: string): string {
   return processedLines.join('\n').trim();
 }
 
-// Aggressive preprocessing to strip the beginning and end of the text on retry
+// Aggressive preprocessing: strips front- and back-matter on retry.
+//
+// The keyword filter is confined to the first and last few lines of the
+// document. Applying it to the whole body — as an earlier version did — meant
+// that any word picked up from the cover page (including character names)
+// deleted every short line containing it, gutting the script itself.
+const AGGRESSIVE_HEAD_LINES = 25;
+const AGGRESSIVE_TAIL_LINES = 15;
+
 function aggressivePreprocessScriptText(text: string): string {
   if (!text) return '';
   const clean = preprocessScriptText(text);
   const lines = clean.split('\n');
-  
-  // Extract dynamic metadata keywords from the first 15 lines of the original text
+
+  // Extract dynamic metadata keywords from the cover lines of the original text
   const dynamicKeywords = extractDynamicMetadataKeywords(text);
-  
-  // Skip the first 15 lines of the remaining text to bypass any remaining prologue or title mentions
-  let slicedLines = lines.length > 15 ? lines.slice(15) : lines;
-  
-  // Also slice the last 10 lines to bypass any back-matter publisher info or book ads
-  if (slicedLines.length > 20) {
-    slicedLines = slicedLines.slice(0, slicedLines.length - 10);
-  }
-  
-  // Remove lines that contain any identifying keywords or look like title/author tags entirely
   const filterKeywords = [...dynamicKeywords, 'baskı', 'basım', 'yayın'];
-  const finalLines = slicedLines.filter(line => {
+
+  const isCoverNoise = (line: string): boolean => {
     const l = line.trim().toLowerCase();
-    if (l.length < 60 && filterKeywords.some(kw => l.includes(kw))) {
-      return false;
-    }
-    return true;
-  });
-  
-  return finalLines.join('\n').trim();
+    if (!l || l.length >= 60) return false;
+    return filterKeywords.some(kw => l.includes(kw));
+  };
+
+  const headEnd = Math.min(AGGRESSIVE_HEAD_LINES, lines.length);
+  const tailStart = Math.max(headEnd, lines.length - AGGRESSIVE_TAIL_LINES);
+
+  const head = lines.slice(0, headEnd).filter(line => !isCoverNoise(line));
+  const body = lines.slice(headEnd, tailStart); // never filtered
+  const tail = lines.slice(tailStart).filter(line => !isCoverNoise(line));
+
+  const removed = (headEnd - head.length) + ((lines.length - tailStart) - tail.length);
+  if (removed > 0) {
+    addLog('info', `Agresif ön-temizleme: baş/son bölümden ${removed} kapak satırı çıkarıldı. Gövde metnine dokunulmadı (${body.length} satır korundu).`);
+  }
+
+  return [...head, ...body, ...tail].join('\n').trim();
 }
 
-// Detect copyright-related refusals or block messages from the model
+// Detect copyright-related refusals or block messages from the model.
+//
+// Deliberately narrow. The previous version matched single words such as
+// "telif", "policy" or "politikası" anywhere in the output — so a novel that
+// merely used one of those words, or an extracted script tens of thousands of
+// characters long, was mistaken for a refusal and sent through the destructive
+// aggressive-cleanup path.
+const REFUSAL_MAX_LENGTH = 2000;
+
+const REFUSAL_PATTERNS: RegExp[] = [
+  // Turkish refusals: an inability verb near a copyright/reproduction noun.
+  /telif\s+hak\w*/i,
+  /(yayımlanmış|yayınlanmış)\s+bir\s+eser/i,
+  /(paylaşamam|aktaramam|çoğaltamam|yeniden\s+üretemem)/i,
+  /(yardımcı\s+olamam|bu\s+(isteği|talebi)\s+(yerine\s+getiremem|karşılayamam))/i,
+  // English refusals.
+  /\bcopyright(ed)?\b/i,
+  /\bi\s+(can'?t|cannot|am\s+not\s+able\s+to)\s+(help|assist|analyze|reproduce|provide|share)/i,
+  /\breproduc\w+\s+the\s+(full|entire|complete)\s+(text|book|work)/i,
+];
+
 function isCopyrightRejection(text: string): boolean {
-  const t = text.toLowerCase();
-  return (
-    t.includes('telif') ||
-    t.includes('copyright') ||
-    t.includes('yetkim yok') ||
-    t.includes('cannot assist') ||
-    t.includes('cannot analyze') ||
-    t.includes('cannot reproduce') ||
-    t.includes('hizmet şartları') ||
-    t.includes('politikası') ||
-    t.includes('policy') ||
-    t.includes('hak sahibi') ||
-    (t.includes('üzgünüm') && (t.includes('yardımcı') || t.includes('analiz') || t.includes('eseri')))
-  );
+  if (!text) return false;
+
+  // A real refusal is a short message. Anything longer is actual output —
+  // an extracted script or a populated JSON analysis — and must never be
+  // treated as a refusal just because of a word it happens to contain.
+  const trimmed = text.trim();
+  if (trimmed.length > REFUSAL_MAX_LENGTH) return false;
+
+  // Valid JSON payloads are results, not refusals.
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) return false;
+
+  return REFUSAL_PATTERNS.some(pattern => pattern.test(trimmed));
 }
 
 // Extract script portion from prompt, clean it, and reconstruct prompt with logging metadata
@@ -853,6 +886,28 @@ app.post('/api/logs/clear', (req, res) => {
   res.json({ success: true });
 });
 
+/**
+ * Minimum characters a genuine text-layer page is expected to contribute.
+ * Deliberately conservative — a sparse title page yields far less than a
+ * dialogue page, and the only cost of guessing low is an unnecessary fallback.
+ */
+const MIN_CHARS_PER_PDF_PAGE = 150;
+
+/**
+ * Removes the "-- 3 of 77 --" separators pdf-parse emits for every page.
+ *
+ * On a scanned PDF these markers are nearly the entire output, which both
+ * inflates the extracted length past any fixed threshold and pollutes the text
+ * handed to the model.
+ */
+function stripPdfPageMarkers(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/^[ \t]*--+\s*\d+\s+of\s+\d+\s*--+[ \t]*$/gim, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 function getPdfPageCount(buffer: Buffer): number {
   try {
     const str = buffer.toString('binary');
@@ -906,29 +961,65 @@ app.post('/api/parse-file', async (req, res) => {
         const uint8 = new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
         const pdfInstance = new pdf.PDFParse(uint8);
         const parsedPdf = await pdfInstance.getText();
-        text = parsedPdf.text || '';
-        addLog('info', `Local PDF text extraction completed. Length: ${text.trim().length} characters.`);
+        text = stripPdfPageMarkers(parsedPdf.text || '');
+        addLog('info', `Local PDF text extraction completed. Length: ${text.trim().length} characters (page markers removed).`);
       } catch (localErr: any) {
         addLog('error', `Local PDF extraction failed: ${localErr.message}. Fallback to Claude document API will be attempted.`);
       }
 
-      // 2. If local text extraction yielded almost empty text (e.g., scanned/image PDF), fall back to Claude document API
-      if (!text || text.trim().length < 100) {
-        addLog('info', 'Local PDF extraction returned insufficient text. Attempting Claude Document API fallback...');
+      // 2. Decide whether the local extraction actually produced a usable script.
+      //
+      // A flat 100-character floor is not enough: a scanned 77-page PDF still
+      // yields thousands of characters of page-marker boilerplate plus the odd
+      // digital page, clearing the floor while containing almost none of the
+      // script. Scale the expectation with the page count instead.
+      const extractedLength = text ? text.trim().length : 0;
+      const minimumExpectedLength = Math.max(100, pageCount * MIN_CHARS_PER_PDF_PAGE);
+
+      if (extractedLength < minimumExpectedLength) {
+        addLog(
+          'info',
+          `Local PDF extraction yielded ${extractedLength} characters for ${pageCount} pages ` +
+          `(beklenen en az ${minimumExpectedLength}). Belge taranmış/görüntü tabanlı görünüyor — ` +
+          'Claude Document API ile okuma deneniyor...'
+        );
         const apiKey = (req.headers['x-anthropic-api-key'] as string) || process.env.ANTHROPIC_API_KEY;
         const systemInstruction = 'You are an expert play script reader and dramaturg. Your job is to extract the complete, raw script text from the uploaded PDF document verbatim, with all dialogue, character names, scene directions, and headers intact. Do not summarize, do not omit any scenes or lines, do not insert any introductory or concluding remarks. Just output the extracted Turkish script text exactly as written.';
         const promptText = 'Please extract the full verbatim text from this play script PDF document.';
 
+        const localFallbackText = text;
         try {
-          text = await callClaudeOnlyDocument(systemInstruction, promptText, fileData, apiKey);
-          addLog('info', `PDF document processed via Claude successfully. Extracted length: ${text.length} characters.`);
+          const claudeText = await callClaudeOnlyDocument(systemInstruction, promptText, fileData, apiKey);
+          // Keep whichever extraction actually produced more of the script.
+          if (claudeText && claudeText.trim().length >= localFallbackText.trim().length) {
+            text = claudeText;
+            addLog('info', `PDF document processed via Claude successfully. Extracted length: ${text.length} characters.`);
+          } else {
+            addLog('info', `Claude çıkarımı (${claudeText.trim().length} karakter) yerel çıkarımdan (${localFallbackText.trim().length} karakter) kısa kaldı; yerel metin korunuyor.`);
+          }
         } catch (claudeErr: any) {
           addLog('error', `Claude document API fallback failed: ${claudeErr.message}`);
-          throw new Error('Bu metin için otomatik analiz başarısız oldu. Alternatif olarak metni bölüm bölüm yükleyebilir veya farklı bir formatta deneyebilirsiniz.');
+          // Don't throw away a partial local extraction just because the
+          // fallback failed — a short script beats no script at all.
+          if (localFallbackText.trim().length === 0) {
+            throw new Error('Bu metin için otomatik analiz başarısız oldu. Alternatif olarak metni bölüm bölüm yükleyebilir veya farklı bir formatta deneyebilirsiniz.');
+          }
+          addLog('error', `Yerel çıkarımdan elde edilen ${localFallbackText.trim().length} karakterlik kısmi metinle devam ediliyor. Bu belge taranmış olabilir; metin eksik olabilir.`);
         }
       }
-      
-      res.json({ text, pageCount });
+
+      const isLikelyIncomplete = text.trim().length < minimumExpectedLength;
+      if (isLikelyIncomplete) {
+        addLog('error', `UYARI: Çıkarılan metin ${pageCount} sayfalık belge için beklenenden kısa (${text.trim().length} karakter). Metin eksik olabilir.`);
+      }
+
+      res.json({
+        text,
+        pageCount,
+        extractionWarning: isLikelyIncomplete
+          ? `Bu ${pageCount} sayfalık belgeden yalnızca ${text.trim().length} karakter okunabildi. Belge taranmış (görüntü tabanlı) olabilir ve metin eksik olabilir.`
+          : null
+      });
       return;
     } else {
       // Fallback plain text
@@ -1006,9 +1097,23 @@ const CompleteAnalysisSchema = z.object({
 });
 
 // 5. Anthropic Claude API calls and Helpers
-async function callClaudeAPI(systemInstruction: string, promptText: string, apiKey: string): Promise<string> {
+//
+// claude-sonnet-4-6 allows up to 128K output tokens. The previous 8192 cap was
+// roughly 6% of that and silently truncated long results: extracted scripts
+// stopped mid-sentence and analysis JSON was cut off mid-array, surfacing as
+// "Expected ',' or ']'" parse errors. max_tokens is only a ceiling — billing
+// follows the tokens actually produced — so a generous limit costs nothing.
+const CLAUDE_MAX_TOKENS_JSON = 16000;      // structured analysis responses
+const CLAUDE_MAX_TOKENS_DOCUMENT = 64000;  // verbatim script extraction from PDFs
+
+async function callClaudeAPI(
+  systemInstruction: string,
+  promptText: string,
+  apiKey: string,
+  maxTokens: number = CLAUDE_MAX_TOKENS_JSON
+): Promise<string> {
   const url = 'https://api.anthropic.com/v1/messages';
-  
+
   let retries = 3;
   let delayMs = 1000;
   let lastError: any = null;
@@ -1024,7 +1129,7 @@ async function callClaudeAPI(systemInstruction: string, promptText: string, apiK
         },
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
-          max_tokens: 8192,
+          max_tokens: maxTokens,
           system: systemInstruction,
           messages: [
             {
@@ -1071,8 +1176,12 @@ async function callClaudeAPI(systemInstruction: string, promptText: string, apiK
         throw new Error('Analiz sonucu çok büyük, işlenemedi.');
       }
 
-      console.log(`PDF analiz çıktı uzunluğu: ${rawOutput.length} karakter`);
-      addLog('info', `PDF analiz çıktı uzunluğu: ${rawOutput.length} karakter`);
+      if (result.stop_reason === 'max_tokens') {
+        addLog('error', `UYARI: Claude yanıtı token sınırına takıldı (max_tokens=${maxTokens}, ${rawOutput.length} karakter). Çıktı eksik olabilir — JSON ayrıştırma hatası alırsanız sebebi budur.`);
+      }
+
+      console.log(`Claude çıktı uzunluğu: ${rawOutput.length} karakter (stop_reason: ${result.stop_reason})`);
+      addLog('info', `Claude çıktı uzunluğu: ${rawOutput.length} karakter`);
 
       return cleanJsonResponse(rawOutput);
     } catch (err: any) {
@@ -1110,7 +1219,7 @@ async function callClaudeAPIWithDocument(
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-6',
-      max_tokens: 8192,
+      max_tokens: CLAUDE_MAX_TOKENS_DOCUMENT,
       system: systemInstruction,
       messages: [
         {
@@ -1158,10 +1267,18 @@ async function callClaudeAPIWithDocument(
     throw new Error('Analiz sonucu çok büyük, işlenemedi.');
   }
 
-  console.log(`PDF analiz çıktı uzunluğu: ${rawOutput.length} karakter`);
-  addLog('info', `PDF analiz çıktı uzunluğu: ${rawOutput.length} karakter`);
+  if (result.stop_reason === 'max_tokens') {
+    addLog('error', `PDF metin çıkarma token sınırına takıldı (${rawOutput.length} karakter). Metnin sonu eksik olabilir.`);
+  }
 
-  return cleanJsonResponse(rawOutput);
+  console.log(`PDF metin çıkarma uzunluğu: ${rawOutput.length} karakter`);
+  addLog('info', `PDF metin çıkarma uzunluğu: ${rawOutput.length} karakter`);
+
+  // Deliberately NOT passing this through cleanJsonResponse(): this call
+  // returns the raw script text, and that helper slices everything outside
+  // the first '{' … last '}' and then runs jsonrepair over it — which
+  // silently truncates or mangles ordinary prose.
+  return rawOutput;
 }
 
 function escapeUnescapedQuotes(jsonStr: string): string {

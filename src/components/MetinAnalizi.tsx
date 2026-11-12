@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, DragEvent } from 'react';
 import * as XLSX from 'xlsx';
 import { Project, Scene, SceneBoundary, SceneAnalysis, Mekan, Gecis, Olay, Aksesuar } from '../types';
+import { detectSceneHeaderLines, countSceneHeaderLines } from '../utils/sceneHeaders';
 import { 
   UploadCloud, 
   File, 
@@ -35,6 +36,7 @@ interface MetinAnaliziProps {
   onUpdateProject: (p: Project) => void;
   addLog: (level: 'info' | 'error', message: string) => void;
 }
+
 
 const convertBeatsToScenes = (text: string, beats: { name: string; startPercentage: number; endPercentage: number }[]): { boundaries: SceneBoundary[], scenes: Scene[] } => {
   const textLen = text.length;
@@ -179,19 +181,12 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
 
   // Regex Boundary Detector
   const detectBoundaries = (text: string): SceneBoundary[] => {
-    // Regex for typical Turkish play headers: "SAHNE 1", "PERDE II", "BÖLÜM 3", "TABLO 4", "İÇ MEKAN"
-    const regex = /(?:SAHNE|PERDE|BÖLÜM|TABLO)\s+([0-9a-zA-ZIVXLCİıŞşĞğÇçÖöÜü]+)|(?:[0-9]+)\.\s*(?:SAHNE|PERDE|BÖLÜM|TABLO)|(?:İÇ|DIŞ)\s*MEKAN/gi;
-    const list: SceneBoundary[] = [];
-    let match;
-
-    while ((match = regex.exec(text)) !== null) {
-      list.push({
-        name: match[0].toUpperCase().trim(),
-        startIdx: match.index,
-        endIdx: text.length,
-        approved: false
-      });
-    }
+    const list: SceneBoundary[] = detectSceneHeaderLines(text).map(h => ({
+      name: h.name,
+      startIdx: h.startIdx,
+      endIdx: text.length,
+      approved: false
+    }));
 
     if (list.length === 0) {
       list.push({
@@ -335,23 +330,27 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
 
           const pageCountLog = data.pageCount ? ` (${data.pageCount} sayfa)` : '';
           addLog('info', `Metin çıkarma başarılı: ${data.text.length} karakter okundu${pageCountLog}.`);
+          if (data.extractionWarning) {
+            addLog('error', data.extractionWarning);
+            setUploadError(data.extractionWarning);
+          }
           setAnalysisProgress(p => ({ ...p, extraction: 'completed' }));
           
-          // Auto detect play headers vs prose (robust detection)
+          // Auto detect play headers vs prose (robust detection).
+          // Uses the exact same header rule as detectBoundaries, so the two
+          // can never disagree about what counts as a scene.
           const checkIsPlayScript = (text: string): boolean => {
-            // Line-starting structural play elements
-            const lineHeaderRegex = /^\s*(?:(?:SAHNE|PERDE|TABLO|BÖLÜM)\s+[0-9a-zA-ZIVXLCİıŞşĞğÇçÖöÜü]+|(?:[0-9]+)\.\s*(?:SAHNE|PERDE|TABLO|BÖLÜM)|(?:İÇ|DIŞ)\s*MEKAN)\s*$/gim;
-            const headerMatches = text.match(lineHeaderRegex) || [];
-            
+            const headerCount = countSceneHeaderLines(text);
+
             // Character dialogue starts, e.g. "AYŞE: " or "ALİ - " at the start of a line
             const dialogueRegex = /^\s*[A-ZĞÜŞİÖÇI]{2,}(?:\s+[A-ZĞÜŞİÖÇI]{2,})*\s*[:\-–—]\s*\w+/gm;
             const dialogueMatches = text.match(dialogueRegex) || [];
-            
-            console.log(`[Script Detection] Header matches: ${headerMatches.length}, Dialogue matches: ${dialogueMatches.length}`);
-            
+
+            console.log(`[Script Detection] Header lines: ${headerCount}, Dialogue matches: ${dialogueMatches.length}`);
+
             // If substantial dialogue markers or multiple distinct line-starting play headers are present, it is a play script.
             // A typical novel/prose has 0 dialogue lines starting with "CHARACTER: " and at most 1 or 2 section headings on separate lines.
-            if (dialogueMatches.length > 5 || headerMatches.length > 2) {
+            if (dialogueMatches.length > 5 || headerCount > 2) {
               return true;
             }
             return false;
