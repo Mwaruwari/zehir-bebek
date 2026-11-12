@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Project, TechnicalDrawing, PlacedProp, StyleReference } from '../types';
+import { sanitizeProjectForApi } from '../utils/apiPayload';
 import { 
   Layers, 
   Upload, 
@@ -188,7 +189,9 @@ export function TeknikCizimView({ project, onUpdateProject }: TeknikCizimProps) 
         headers,
         body: JSON.stringify({
           style: drawing.style,
-          project,
+          // Only the drawing being enhanced needs its bytes sent; the rest of
+          // the project's images would otherwise blow past the body limit.
+          project: sanitizeProjectForApi(project),
           drawingTitle: drawing.title,
           image: drawing.image
         })
@@ -200,14 +203,20 @@ export function TeknikCizimView({ project, onUpdateProject }: TeknikCizimProps) 
       }
 
       const result = await res.json();
-      
+
+      // Never let a thin or malformed model response wipe the designer's own
+      // work: the pafta title they typed and the dimension notes recorded at
+      // upload time are kept unless the server actually returns replacements.
+      const enhancedImage = result.image && result.image !== drawing.image;
       const updated = drawings.map((d) => {
         if (d.id === id) {
           return {
             ...d,
-            title: result.title,
-            materialNotes: result.materialNotes,
-            scale: result.scale,
+            title: d.title || result.title,
+            materialNotes: (Array.isArray(result.materialNotes) && result.materialNotes.length > 0)
+              ? result.materialNotes
+              : d.materialNotes,
+            scale: result.scale || d.scale,
             image: result.image || d.image
           };
         }
@@ -216,7 +225,12 @@ export function TeknikCizimView({ project, onUpdateProject }: TeknikCizimProps) 
 
       setDrawings(updated);
       persistState(updated, styleLibrary, placedProps);
-      addStatus('success', 'Çizim paftası detaylandırıldı, ölçeklendi ve malzeme notları eklendi!');
+      addStatus(
+        enhancedImage ? 'success' : 'error',
+        enhancedImage
+          ? 'Çizim paftası detaylandırıldı, ölçeklendi ve malzeme notları eklendi!'
+          : 'Çizim görseli yapay zeka ile yeniden üretilemedi; yalnızca ölçek ve not bilgileri güncellendi.'
+      );
     } catch (err: any) {
       console.error(err);
       addStatus('error', `Hata: ${err.message}`);

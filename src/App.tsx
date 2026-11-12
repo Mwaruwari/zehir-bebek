@@ -10,6 +10,7 @@ import { HareketDuyguView } from './components/HareketDuygu';
 import { SembolikAnlatimView } from './components/SembolikAnlatim';
 import { BackupManagerModal } from './components/BackupManagerModal';
 import { safeMergeProject, safeMergeProjectsList } from './utils/safeMerge';
+import { saveLocalBackup, loadLocalBackup, assessRecovery } from './utils/localBackup';
 import { 
   Drama, 
   Sparkles, 
@@ -43,6 +44,12 @@ export default function App() {
   // Backup manager state
   const [showBackupModal, setShowBackupModal] = useState(false);
 
+  // Local (IndexedDB) recovery state — guards against the server's ephemeral
+  // filesystem being reset out from under us.
+  const [recoverableProjects, setRecoverableProjects] = useState<Project[]>([]);
+  const [isRecovering, setIsRecovering] = useState(false);
+  const [recoveryNotice, setRecoveryNotice] = useState<string | null>(null);
+
   // Save & Queue state
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -66,8 +73,30 @@ export default function App() {
       try {
         const res = await fetch('/api/projects');
         if (res.ok) {
-          const data = await res.json();
-          setProjects(data);
+          const data: Project[] = await res.json();
+
+          // Compare against the browser-side mirror. The server stores projects
+          // on an ephemeral filesystem, so a restart can silently empty it.
+          const backup = await loadLocalBackup();
+          const { missingProjects, serverIsEmpty } = assessRecovery(data, backup);
+
+          if (serverIsEmpty && missingProjects.length > 0) {
+            // Unambiguous loss: the server has nothing, the browser has work.
+            // Restore automatically rather than making the user discover it.
+            const restored = await restoreProjects(missingProjects, data);
+            setProjects(restored);
+            setRecoveryNotice(
+              `Sunucudaki proje verisi sıfırlanmıştı. Tarayıcı yedeğinden ${missingProjects.length} proje otomatik geri yüklendi.`
+            );
+          } else {
+            setProjects(data);
+            if (missingProjects.length > 0) {
+              // Partial mismatch — could legitimately be another device's data,
+              // so offer the restore instead of forcing it.
+              setRecoverableProjects(missingProjects);
+            }
+          }
+
           hasLoadedRef.current = true;
 
           // Restore last selected project from localStorage if applicable
@@ -87,6 +116,36 @@ export default function App() {
     };
     fetchProjects();
   }, []);
+
+  /** Pushes recovered projects back to the server and returns the merged list. */
+  const restoreProjects = async (missing: Project[], current: Project[]): Promise<Project[]> => {
+    const merged = [...missing, ...current];
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(merged)
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${res.status}`);
+      }
+      addClientLog('info', `Tarayıcı yedeğinden ${missing.length} proje geri yüklendi.`);
+    } catch (err: any) {
+      addClientLog('error', `Yedekten geri yükleme başarısız: ${err.message}`);
+    }
+    return merged;
+  };
+
+  const handleManualRecovery = async () => {
+    if (recoverableProjects.length === 0) return;
+    setIsRecovering(true);
+    const merged = await restoreProjects(recoverableProjects, projects);
+    setProjects(merged);
+    setRecoveryNotice(`${recoverableProjects.length} proje tarayıcı yedeğinden geri yüklendi.`);
+    setRecoverableProjects([]);
+    setIsRecovering(false);
+  };
 
   // 2. Fetch system logs to display in indicator
   const fetchRecentLogs = async () => {
@@ -153,6 +212,10 @@ export default function App() {
         }
 
         setSaveError(null);
+
+        // Mirror the saved state locally. Done after the server confirms, so
+        // the browser copy never gets ahead of what was actually persisted.
+        saveLocalBackup(projectsToSave);
       } catch (err: any) {
         console.error('Failed to save projects to shared backend:', err);
         const errMsg = err.message || 'Sunucuya erişilemedi';
@@ -217,6 +280,12 @@ export default function App() {
       setSelectedProject(null);
       localStorage.removeItem('activeProjectId');
     }
+
+    // Keep the local mirror in step with the deletion. Without this the
+    // recovery check would see the deleted project as "missing from the
+    // server" and offer to bring it back.
+    setRecoverableProjects(prev => prev.filter(p => p.id !== id));
+    saveLocalBackup(updated);
 
     try {
       const res = await fetch(`/api/projects/${id}`, { method: 'DELETE' });
@@ -409,8 +478,56 @@ export default function App() {
         </div>
       )}
 
+      {/* LOCAL BACKUP RECOVERY BANNERS */}
+      {recoverableProjects.length > 0 && (
+        <div className="bg-amber-950/90 border-b border-amber-500/50 text-amber-100 px-6 py-2.5 flex items-center justify-between z-40 shadow-lg">
+          <div className="flex items-center gap-3">
+            <History className="w-5 h-5 text-amber-400 shrink-0" />
+            <div>
+              <p className="font-semibold text-xs text-amber-50">
+                Tarayıcı yedeğinde, sunucuda bulunmayan {recoverableProjects.length} proje var
+              </p>
+              <p className="text-[11px] text-amber-300 font-mono">
+                {recoverableProjects.map(p => p.name).join(', ')}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleManualRecovery}
+              disabled={isRecovering}
+              className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white rounded text-xs font-semibold flex items-center gap-1.5 transition-colors shadow"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isRecovering ? 'animate-spin' : ''}`} />
+              {isRecovering ? 'Geri yükleniyor...' : 'Geri Yükle'}
+            </button>
+            <button
+              onClick={() => setRecoverableProjects([])}
+              className="px-3 py-1.5 bg-transparent border border-amber-600/60 hover:bg-amber-900/50 text-amber-200 rounded text-xs font-semibold transition-colors"
+            >
+              Yoksay
+            </button>
+          </div>
+        </div>
+      )}
+
+      {recoveryNotice && (
+        <div className="bg-emerald-950/90 border-b border-emerald-500/50 text-emerald-100 px-6 py-2.5 flex items-center justify-between z-40 shadow-lg">
+          <div className="flex items-center gap-3">
+            <History className="w-5 h-5 text-emerald-400 shrink-0" />
+            <p className="text-xs text-emerald-50">{recoveryNotice}</p>
+          </div>
+          <button
+            onClick={() => setRecoveryNotice(null)}
+            className="px-3 py-1.5 bg-transparent border border-emerald-600/60 hover:bg-emerald-900/50 text-emerald-200 rounded text-xs font-semibold transition-colors"
+          >
+            Tamam
+          </button>
+        </div>
+      )}
+
       {/* CORE CONTENT ROUTING */}
-      <main 
+      <main
         className="flex-1 w-full mx-auto p-3 sm:p-6 flex flex-col justify-between overflow-x-hidden overflow-y-visible"
         style={{
           paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 1.5rem)',
@@ -615,21 +732,24 @@ export default function App() {
                       <span className="text-[10px] font-bold uppercase tracking-wider font-mono">ADIM 1: METİN ANALİZİ</span>
                     </div>
                     <div className="bg-[#16171a] border border-[#1f2125] rounded p-2.5 space-y-1.5 text-xs text-zinc-400 font-mono">
+                      {/* Real counts only. These used to fall back to 2/16/13/20,
+                          so an untouched project advertised an analysis that had
+                          never run — and `||` swallowed genuine zeroes too. */}
                       <div className="flex justify-between">
                         <span>Bölümler / Perdeler:</span>
-                        <span className="text-white font-bold">2</span>
+                        <span className="text-white font-bold">{selectedProject.scenes?.length ?? 0}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Toplam Mekan:</span>
-                        <span className="text-white font-bold">{selectedProject.analysis?.mekanlar?.length || 16}</span>
+                        <span className="text-white font-bold">{selectedProject.analysis?.mekanlar?.length ?? 0}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Fiziksel Olaylar:</span>
-                        <span className="text-white font-bold">{selectedProject.analysis?.olaylar?.length || 13}</span>
+                        <span className="text-white font-bold">{selectedProject.analysis?.olaylar?.length ?? 0}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Dekor/Aksesuar:</span>
-                        <span className="text-white font-bold">{selectedProject.analysis?.aksesuarlar?.length || 20}</span>
+                        <span className="text-white font-bold">{selectedProject.analysis?.aksesuarlar?.length ?? 0}</span>
                       </div>
                     </div>
                   </div>
@@ -844,7 +964,18 @@ export default function App() {
         isOpen={showBackupModal}
         onClose={() => setShowBackupModal(false)}
         onRestoreSuccess={(restoredProjects) => {
+          // Cancel any save that was already queued against the pre-restore
+          // state. Without this, a debounced write (or an in-flight queue run)
+          // POSTs the old project list moments after the restore wrote the
+          // file, silently undoing it.
+          if (saveTimeoutRef.current) {
+            clearTimeout(saveTimeoutRef.current);
+            saveTimeoutRef.current = null;
+          }
+          pendingProjectsRef.current = null;
+
           setProjects(restoredProjects);
+          saveLocalBackup(restoredProjects);
           if (selectedProject) {
             const current = restoredProjects.find(p => p.id === selectedProject.id);
             if (current) {
