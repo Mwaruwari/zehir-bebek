@@ -8,6 +8,7 @@ import { SembolikAnlatimView } from './components/SembolikAnlatim';
 import { BackupManagerModal } from './components/BackupManagerModal';
 import { safeMergeProject, safeMergeProjectsList } from './utils/safeMerge';
 import { saveLocalBackup, loadLocalBackup, assessRecovery } from './utils/localBackup';
+import { migrateProjects } from './utils/migrateProject';
 import { 
   FileText,
   Layers,
@@ -65,11 +66,13 @@ export default function App() {
       try {
         const res = await fetch('/api/projects');
         if (res.ok) {
-          const data: Project[] = await res.json();
+          // Eski öğe şemasını (kategori / status) yeni 10 sütunlu şemaya taşı.
+          const data: Project[] = migrateProjects(await res.json());
 
           // Compare against the browser-side mirror. The server stores projects
           // on an ephemeral filesystem, so a restart can silently empty it.
-          const backup = await loadLocalBackup();
+          const rawBackup = await loadLocalBackup();
+          const backup = rawBackup ? { ...rawBackup, projects: migrateProjects(rawBackup.projects) } : rawBackup;
           const { missingProjects, serverIsEmpty } = assessRecovery(data, backup);
 
           if (serverIsEmpty && missingProjects.length > 0) {
@@ -709,31 +712,28 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Section 3: Üretim durumu */}
+                  {/* Section 3: Doldurulması bekleyen alanlar */}
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-1.5 text-purple-400">
                       <ClipboardList className="w-3.5 h-3.5 shrink-0 text-purple-500" />
-                      <span className="text-[10px] font-bold uppercase tracking-wider font-mono">ÜRETİM DURUMU</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider font-mono">SENİ BEKLEYENLER</span>
                     </div>
                     <div className="bg-[#16171a] border border-[#1f2125] rounded p-2.5 space-y-1.5 text-xs text-zinc-400 font-mono">
-                      <div className="flex justify-between">
-                        <span>Satın Alınacak:</span>
-                        <span className="text-white font-bold">
-                          {selectedProject.analysis?.aksesuarlar?.filter(a => a.status === 'Satın Alınacak').length ?? 0}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Üretilecek:</span>
-                        <span className="text-white font-bold">
-                          {selectedProject.analysis?.aksesuarlar?.filter(a => a.status === 'Üretilecek').length ?? 0}
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Belirlenmedi:</span>
-                        <span className="text-white font-bold">
-                          {selectedProject.analysis?.aksesuarlar?.filter(a => !a.status).length ?? 0}
-                        </span>
-                      </div>
+                      {(() => {
+                        const items = selectedProject.analysis?.aksesuarlar ?? [];
+                        const rows: [string, number][] = [
+                          ['Toplam öğe', items.length],
+                          ['Türü boş', items.filter(a => !a.tur).length],
+                          ['Kaynağı boş', items.filter(a => !a.kaynak).length],
+                          ['Kararı bekliyor', items.filter(a => a.tasarimKarari !== 'Verildi').length]
+                        ];
+                        return rows.map(([label, count]) => (
+                          <div key={label} className="flex justify-between">
+                            <span>{label}:</span>
+                            <span className="text-white font-bold">{count}</span>
+                          </div>
+                        ));
+                      })()}
                     </div>
                   </div>
 
@@ -924,7 +924,9 @@ export default function App() {
       <BackupManagerModal
         isOpen={showBackupModal}
         onClose={() => setShowBackupModal(false)}
-        onRestoreSuccess={(restoredProjects) => {
+        onRestoreSuccess={(rawRestoredProjects) => {
+          // Sunucu yedeği eski şemada olabilir; önce yeni şemaya taşı.
+          const restoredProjects = migrateProjects(rawRestoredProjects);
           // Cancel any save that was already queued against the pre-restore
           // state. Without this, a debounced write (or an in-flight queue run)
           // POSTs the old project list moments after the restore wrote the

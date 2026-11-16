@@ -25,14 +25,49 @@ export interface Olay {
   changed?: 'added' | 'removed' | null;
 }
 
+/** Öğe tablosundaki "Tür" sütunu. Boş = henüz doldurulmadı (analiz tahmin etmez). */
+export type OgeTur = '' | 'Aksesuar' | 'Dekor' | 'Mobilya' | 'Kostüm aksesuarı';
+export const OGE_TUR_SECENEKLERI: Exclude<OgeTur, ''>[] = [
+  'Aksesuar', 'Dekor', 'Mobilya', 'Kostüm aksesuarı'
+];
+
+/** Öğe tablosundaki "Kaynak" sütunu. Boş = henüz karar verilmedi (analiz tahmin etmez). */
+export type OgeKaynak = '' | 'Satın al' | 'Üret' | 'Kirala/Ödünç' | 'Depodan';
+export const OGE_KAYNAK_SECENEKLERI: Exclude<OgeKaynak, ''>[] = [
+  'Satın al', 'Üret', 'Kirala/Ödünç', 'Depodan'
+];
+
+export type AnlamTasiyor = '' | 'Evet' | 'Hayır';
+export type TasarimKarari = '' | 'Bekliyor' | 'Verildi';
+
+/**
+ * Bir dekor/aksesuar öğesi. Dışa aktarım sütun sırası:
+ * No | Öğe | Tür | Sahneler | Metinden alıntı | Kaynak | Adet | Ölçü (cm) |
+ * Anlam taşıyor | Tasarım kararı
+ * ("No" satır sırasından üretilir, saklanmaz.)
+ */
 export interface Aksesuar {
   id: string;
+  /** Öğe */
   ad: string;
-  kategori: 'dekor' | 'aksesuar';
-  kaynakAlinti: string;
-  aciklama: string;
-  status?: 'Satın Alınacak' | 'Üretilecek' | '';
+  /** Tür — analiz tahmin etmez, kullanıcı doldurur */
+  tur: OgeTur;
+  /** Sahneler */
   kullanildigiSahneler?: string[];
+  /** Metinden alıntı */
+  kaynakAlinti: string;
+  /** Kaynak — analiz tahmin etmez, kullanıcı doldurur */
+  kaynak: OgeKaynak;
+  /** Adet — analiz tahmin etmez, kullanıcı doldurur */
+  adet?: string;
+  /** Ölçü (cm) — analiz tahmin etmez, kullanıcı doldurur */
+  olcu?: string;
+  /** Anlam taşıyor — kabul edilen sembole bağlanırsa otomatik "Evet" olur */
+  anlamTasiyor?: AnlamTasiyor;
+  /** Tasarım kararı — analiz tahmin etmez, kullanıcı doldurur */
+  tasarimKarari?: TasarimKarari;
+  /** Eski sürümlerden kalan kullanım notu. Yeni analizlerde üretilmez, tabloda gösterilmez. */
+  aciklama?: string;
   changed?: 'added' | 'removed' | null;
 }
 
