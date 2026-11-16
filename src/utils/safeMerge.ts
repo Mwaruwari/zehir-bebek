@@ -64,12 +64,6 @@ export function safeMergeProject(existing: Project, incoming: Partial<Project>):
     merged.analysis = mergedAnalysis;
   }
 
-  // 3. Merge Visual & Drawing Libraries
-  mergeArray('presentationImages');
-  mergeArray('technicalDrawings');
-  mergeArray('placedProps');
-  mergeArray('styleLibrary');
-
   // 4. Merge Rhythm & Emotion Analysis
   mergeArray('movementEmotionData');
   if (existing.movementEmotionInstruction && (!incoming.movementEmotionInstruction || incoming.movementEmotionInstruction.trim() === '')) {
@@ -87,9 +81,6 @@ export function safeMergeProject(existing: Project, incoming: Partial<Project>):
   // 6. Merge Production & Verbal Plans
   mergeObject('productionPlanSummary');
   mergeObject('productionPlanDetailed');
-  mergeObject('verbalLanguage');
-  mergeArray('verbalLanguageHistory');
-  mergeArray('sozselDilVersiyonlari');
 
   // 7. Preserve Script Text if incoming is empty
   if (existing.scriptText && (!incoming.scriptText || incoming.scriptText.trim() === '')) {

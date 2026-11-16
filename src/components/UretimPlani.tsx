@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Project, Aksesuar } from '../types';
-import { sanitizeProjectForApi } from '../utils/apiPayload';
 import { 
   ClipboardList, 
   ShoppingBag, 
@@ -71,8 +70,6 @@ export function UretimPlanıView({ project, onUpdateProject }: UretimPlaniProps)
   const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
 
   const propsList = project.analysis?.aksesuarlar || [];
-  const approvedDrawings = project.technicalDrawings?.filter(d => d.approved) || [];
-  const hasApprovedDrawings = approvedDrawings.length > 0;
 
   const total = propsList.length;
   const toBuy = propsList.filter(p => p.status === 'Satın Alınacak').length;
@@ -87,7 +84,7 @@ export function UretimPlanıView({ project, onUpdateProject }: UretimPlaniProps)
       const response = await fetch('/api/generate-production-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project: sanitizeProjectForApi(project) })
+        body: JSON.stringify({ project: project })
       });
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
@@ -307,23 +304,6 @@ export function UretimPlanıView({ project, onUpdateProject }: UretimPlaniProps)
 
         let y = 68;
 
-        // Integrated Approved Technical Drawings list
-        if (approvedDrawings.length > 0) {
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(11);
-          doc.setTextColor(40, 40, 40);
-          doc.text(normalizeTurkishForPdf('Onayli Sahne Yerlesim & Teknik Cizim Paftalari:'), 15, y);
-          y += 6;
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(9);
-          doc.setTextColor(80, 80, 80);
-          approvedDrawings.forEach(d => {
-            doc.text(normalizeTurkishForPdf(`* ${d.title} (Olcek: ${d.scale})`), 20, y);
-            y += 5;
-          });
-          y += 5;
-        }
-
         // Materials table
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(12);
@@ -423,23 +403,6 @@ export function UretimPlanıView({ project, onUpdateProject }: UretimPlaniProps)
         doc.line(15, 61, 195, 61);
 
         let y = 68;
-
-        // Integrated Approved Technical Drawings list
-        if (approvedDrawings.length > 0) {
-          doc.setFont('helvetica', 'bold');
-          doc.setFontSize(11);
-          doc.setTextColor(40, 40, 40);
-          doc.text(normalizeTurkishForPdf('Referans Alinan Onayli Teknik Paftalar:'), 15, y);
-          y += 6;
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(9);
-          doc.setTextColor(80, 80, 80);
-          approvedDrawings.forEach(d => {
-            doc.text(normalizeTurkishForPdf(`* ${d.title} (Mekan: ${d.scale} | Onayli)`), 20, y);
-            y += 5;
-          });
-          y += 5;
-        }
 
         // Crew requirements and estimate
         doc.setFont('helvetica', 'bold');
@@ -551,40 +514,10 @@ export function UretimPlanıView({ project, onUpdateProject }: UretimPlaniProps)
       <div className="bg-[#111] border border-[#2a2a2a] p-4 rounded flex items-center justify-between text-xs font-mono text-zinc-500">
         <div>
           <span className="text-zinc-400 font-bold font-sans">ADHD Asistan Özet Paneli:</span> 
-          <span className="ml-2">Toplam {total} envanter öğesi, {reusedProps.length} tekrar kullanılan öğe tespit edildi. Onaylı pafta sayısı: {approvedDrawings.length}</span>
+          <span className="ml-2">Toplam {total} envanter öğesi, {reusedProps.length} tekrar kullanılan öğe tespit edildi.</span>
         </div>
         <span className="text-red-500 font-serif italic">Eto'nun sahne tasarımı asistanı</span>
       </div>
-
-      {/* Approved Drawings warning/success */}
-      {!hasApprovedDrawings ? (
-        <div className="bg-red-950/20 border border-red-500/30 p-5 rounded-lg flex items-start gap-3.5 text-xs text-red-400 font-mono shadow-xl animate-pulse">
-          <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <h4 className="font-bold uppercase tracking-wider text-red-400">DİKKAT: ONAYLI TEKNİK ÇİZİM PAFTASI BULUNAMADI</h4>
-            <p className="text-zinc-400 font-sans leading-relaxed">
-              Üretim ve atölye imalat planının sağlıklı bir şekilde yürütülebilmesi için onaylı bir teknik çizimin bulunması gerekmektedir. Lütfen <strong>Teknik Çizim</strong> sekmesinden taslak paftalarınızı onaylayın (Bu sekme ancak onay sonrası tam aktifleşir).
-            </p>
-          </div>
-        </div>
-      ) : (
-        <div className="bg-red-950/10 border border-red-800/40 p-5 rounded-lg flex items-start gap-3.5 text-xs text-red-200 font-mono shadow-xl">
-          <CheckCircle2 className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <h4 className="font-bold uppercase tracking-wider text-red-400">ONAYLANMIŞ TEKNİK ÇİZİMLER ENTEGRE EDİLDİ ({approvedDrawings.length})</h4>
-            <p className="text-zinc-400 font-sans leading-relaxed">
-              Aşağıdaki onaylı pafta ve montaj çizimleri imalat ve atölye planına başarıyla bağlanmıştır:
-            </p>
-            <div className="flex flex-wrap gap-2 pt-2">
-              {approvedDrawings.map(d => (
-                <span key={d.id} className="px-2.5 py-1 bg-red-950/40 border border-red-900/30 rounded text-[10px] text-red-300 uppercase font-mono tracking-wider font-bold">
-                  ● {d.title} ({d.scale})
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Metrics overview */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

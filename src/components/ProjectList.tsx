@@ -352,7 +352,7 @@ export default function ProjectList({
 
               <div className="flex items-center gap-2 text-[10px] text-zinc-500 leading-normal font-mono">
                 <Info className="w-3.5 h-3.5 text-gold shrink-0" />
-                <span>Sahne ölçüleri, "Teknik Çizim" modülünde orantılı planlama yapmak için kullanılacaktır.</span>
+                <span>Sahne ölçüleri, analiz ve üretim planında dekor-aksesuar ölçeklendirmesi için kullanılacaktır.</span>
               </div>
 
               <div className="flex justify-end gap-2 border-t border-[#2a2a2a] pt-4 mt-2">

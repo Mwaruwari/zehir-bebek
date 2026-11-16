@@ -3,8 +3,6 @@ import { Project, ServerLog } from './types';
 import ProjectList from './components/ProjectList';
 import MetinAnalizi from './components/MetinAnalizi';
 import LogViewer from './components/LogViewer';
-import { SunumDosyasiView } from './components/SunumDosyasi';
-import { TeknikCizimView } from './components/TeknikCizim';
 import { UretimPlanıView } from './components/UretimPlani';
 import { HareketDuyguView } from './components/HareketDuygu';
 import { SembolikAnlatimView } from './components/SembolikAnlatim';
@@ -12,20 +10,15 @@ import { BackupManagerModal } from './components/BackupManagerModal';
 import { safeMergeProject, safeMergeProjectsList } from './utils/safeMerge';
 import { saveLocalBackup, loadLocalBackup, assessRecovery } from './utils/localBackup';
 import { 
-  Drama, 
-  Sparkles, 
-  FileText, 
-  Layers, 
-  TrendingUp, 
-  Compass, 
-  ClipboardList, 
-  LogOut, 
-  Terminal, 
-  ChevronDown, 
-  ChevronUp, 
+  FileText,
+  Layers,
+  TrendingUp,
+  Compass,
+  ClipboardList,
+  Terminal,
+  ChevronDown,
   Settings,
   MapPin,
-  Lock,
   Maximize2,
   History,
   AlertTriangle,
@@ -357,8 +350,6 @@ export default function App() {
   // Tabs structure metadata matching the mockup exactly
   const tabs = [
     { label: 'Metin Analizi', subtitle: 'Senaryo & Dekor Analizi', icon: FileText, desc: 'Oyun metni analizi ve mekan tespiti' },
-    { label: 'Sunum Dosyası', subtitle: 'Görsel Dil & Slogan', icon: FileText, desc: 'Reji ekibi sunum dökümanı taslağı' },
-    { label: 'Teknik Çizim', subtitle: 'Ölçeklendirme & Grid', icon: Layers, desc: 'Ölçekli sahne yerleşim planı ve ızgara' },
     { label: 'Üretim Planı', subtitle: 'Bütçe & Atölye Kartları', icon: ClipboardList, desc: 'Konsolide dekor ve aksesuar tedarik tablosu' },
     { label: 'Duygu Grafiği', subtitle: 'Hareket & Duygu Eğrisi', icon: TrendingUp, desc: 'Duygusal zirveler ve reji ritim eğrisi' },
     { label: 'Sembolik Anlatım', subtitle: 'Alt Metin & Semboller', icon: Compass, desc: 'Tematik referanslar ve sembol moodboard' }
@@ -591,48 +582,33 @@ export default function App() {
 
                 {/* Vertical Sidebar Tab List */}
                 <div className="flex flex-col gap-1.5">
-                  {(() => {
-                    const hasApprovedDrawing = selectedProject?.technicalDrawings?.some(d => d.approved || d.isOnayli) || false;
-                    
-                    return tabs.map((tab, idx) => {
-                      const isTabActive = activeTab === idx;
-                      const TabIcon = tab.icon;
-                      const isLocked = idx === 3 && !hasApprovedDrawing;
-                      
-                      return (
-                        <button
-                          key={idx}
-                          disabled={isLocked}
-                          onClick={() => setActiveTab(idx)}
-                          className={`text-left p-3 rounded-lg border transition-all flex items-start gap-3 relative ${
-                            isLocked
-                              ? 'opacity-35 cursor-not-allowed bg-transparent border-transparent text-zinc-600'
-                              : isTabActive
-                              ? 'bg-red-950/10 border-red-800 text-white border-l-[4px] border-l-red-600'
-                              : 'bg-transparent border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-[#131517]'
-                          }`}
-                          id={`tab-nav-${idx}`}
-                          title={isLocked ? 'En az bir teknik çizimi onaylamalısınız (Üretim Planı kilitli)' : undefined}
-                        >
-                          <div className="relative shrink-0 mt-0.5">
-                            <TabIcon className={`w-4 h-4 ${isLocked ? 'text-zinc-700' : isTabActive ? 'text-red-500' : 'text-zinc-500'}`} />
-                            {isLocked && (
-                              <div className="absolute -bottom-1 -right-1 bg-black rounded-full p-0.5 border border-zinc-800">
-                                <Lock className="w-2 h-2 text-zinc-500" />
-                              </div>
-                            )}
+                  {tabs.map((tab, idx) => {
+                    const isTabActive = activeTab === idx;
+                    const TabIcon = tab.icon;
+
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => setActiveTab(idx)}
+                        className={`text-left p-3 rounded-lg border transition-all flex items-start gap-3 relative ${
+                          isTabActive
+                            ? 'bg-red-950/10 border-red-800 text-white border-l-[4px] border-l-red-600'
+                            : 'bg-transparent border-transparent text-zinc-400 hover:text-zinc-200 hover:bg-[#131517]'
+                        }`}
+                        id={`tab-nav-${idx}`}
+                      >
+                        <div className="relative shrink-0 mt-0.5">
+                          <TabIcon className={`w-4 h-4 ${isTabActive ? 'text-red-500' : 'text-zinc-500'}`} />
+                        </div>
+                        <div className="truncate flex-1">
+                          <div className={`text-[11px] font-bold tracking-wide flex items-center justify-between ${isTabActive ? 'text-white' : 'text-zinc-300'}`}>
+                            <span>{idx + 1}. {tab.label}</span>
                           </div>
-                          <div className="truncate flex-1">
-                            <div className={`text-[11px] font-bold tracking-wide flex items-center justify-between ${isLocked ? 'text-zinc-600' : isTabActive ? 'text-white' : 'text-zinc-300'}`}>
-                              <span>{idx + 1}. {tab.label}</span>
-                              {isLocked && <span className="text-[8px] font-mono bg-zinc-950 border border-zinc-800 text-zinc-500 px-1 rounded">KİLİTLİ</span>}
-                            </div>
-                            <div className="text-[9px] text-zinc-500 mt-0.5 truncate">{tab.subtitle}</div>
-                          </div>
-                        </button>
-                      );
-                    });
-                  })()}
+                          <div className="text-[9px] text-zinc-500 mt-0.5 truncate">{tab.subtitle}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -647,32 +623,19 @@ export default function App() {
                     />
                   )}
                   {activeTab === 1 && (
-                    <SunumDosyasiView
-                      project={selectedProject}
-                      onUpdateProject={handleUpdateProject}
-                      addLog={addClientLog}
-                    />
-                  )}
-                  {activeTab === 2 && (
-                    <TeknikCizimView
-                      project={selectedProject}
-                      onUpdateProject={handleUpdateProject}
-                    />
-                  )}
-                  {activeTab === 3 && (
                     <UretimPlanıView
                       project={selectedProject}
                       onUpdateProject={handleUpdateProject}
                     />
                   )}
-                  {activeTab === 4 && (
+                  {activeTab === 2 && (
                     <HareketDuyguView
                       project={selectedProject}
                       onUpdateProject={handleUpdateProject}
                       addLog={addClientLog}
                     />
                   )}
-                  {activeTab === 5 && (
+                  {activeTab === 3 && (
                     <SembolikAnlatimView
                       project={selectedProject}
                       onUpdateProject={handleUpdateProject}
@@ -754,25 +717,31 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* Section 3: Adım 2 Görsel Dil */}
+                  {/* Section 3: Üretim durumu */}
                   <div className="space-y-1.5">
                     <div className="flex items-center gap-1.5 text-purple-400">
-                      <Sparkles className="w-3.5 h-3.5 shrink-0 text-purple-500" />
-                      <span className="text-[10px] font-bold uppercase tracking-wider font-mono">ADIM 2: GÖRSEL & SÖZSEL DİL</span>
+                      <ClipboardList className="w-3.5 h-3.5 shrink-0 text-purple-500" />
+                      <span className="text-[10px] font-bold uppercase tracking-wider font-mono">ÜRETİM DURUMU</span>
                     </div>
-                    <div className="bg-[#16171a]/40 border border-[#1f2125]/60 rounded p-2.5 text-[11px] text-zinc-500 italic font-mono">
-                      Bu aşamaya henüz geçilmedi.
-                    </div>
-                  </div>
-
-                  {/* Section 4: Adım 3 Teknik Çizim */}
-                  <div className="space-y-1.5">
-                    <div className="flex items-center gap-1.5 text-blue-400">
-                      <Layers className="w-3.5 h-3.5 shrink-0 text-blue-500" />
-                      <span className="text-[10px] font-bold uppercase tracking-wider font-mono">ADIM 3: TEKNİK ÇİZİM</span>
-                    </div>
-                    <div className="bg-[#16171a]/40 border border-[#1f2125]/60 rounded p-2.5 text-[11px] text-zinc-500 italic font-mono">
-                      Bu aşamaya henüz geçilmedi.
+                    <div className="bg-[#16171a] border border-[#1f2125] rounded p-2.5 space-y-1.5 text-xs text-zinc-400 font-mono">
+                      <div className="flex justify-between">
+                        <span>Satın Alınacak:</span>
+                        <span className="text-white font-bold">
+                          {selectedProject.analysis?.aksesuarlar?.filter(a => a.status === 'Satın Alınacak').length ?? 0}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Üretilecek:</span>
+                        <span className="text-white font-bold">
+                          {selectedProject.analysis?.aksesuarlar?.filter(a => a.status === 'Üretilecek').length ?? 0}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Belirlenmedi:</span>
+                        <span className="text-white font-bold">
+                          {selectedProject.analysis?.aksesuarlar?.filter(a => !a.status).length ?? 0}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
