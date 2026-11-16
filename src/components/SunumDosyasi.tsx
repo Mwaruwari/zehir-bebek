@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Project, PresentationImage, VerbalLanguage } from '../types';
+import { sanitizeProjectForApi } from '../utils/apiPayload';
 import { 
   FileText, 
   Upload, 
@@ -156,7 +157,9 @@ export function SunumDosyasiView({ project, onUpdateProject, addLog }: SunumDosy
           body: JSON.stringify({
             image: base64String,
             imageName: file.name,
-            project
+            // Send only the image being analysed; the project's other images
+            // would duplicate megabytes of base64 in every request.
+            project: sanitizeProjectForApi(project)
           }),
           signal: controller.signal
         });
@@ -303,7 +306,7 @@ export function SunumDosyasiView({ project, onUpdateProject, addLog }: SunumDosy
         method: 'POST',
         headers,
         body: JSON.stringify({
-          project,
+          project: sanitizeProjectForApi(project),
           instruction
         })
       });

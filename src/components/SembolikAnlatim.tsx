@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Project } from '../types';
+import { sanitizeProjectForApi } from '../utils/apiPayload';
 import { 
   Compass, 
   Sparkles, 
@@ -38,10 +39,11 @@ export function SembolikAnlatimView({ project, onUpdateProject }: SembolikAnlati
       const response = await fetch('/api/generate-symbolic-analysis', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ project, instruction })
+        body: JSON.stringify({ project: sanitizeProjectForApi(project), instruction })
       });
       if (!response.ok) {
-        throw new Error('Sembolik göstergebilimsel analiz gerçekleştirilemedi.');
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Sembolik göstergebilimsel analiz gerçekleştirilemedi (HTTP ${response.status}).`);
       }
       const result = await response.json();
 

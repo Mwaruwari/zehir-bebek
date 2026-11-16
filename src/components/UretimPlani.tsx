@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Project, Aksesuar } from '../types';
+import { sanitizeProjectForApi } from '../utils/apiPayload';
 import { 
   ClipboardList, 
   ShoppingBag, 
@@ -36,8 +37,12 @@ function normalizeTurkishForPdf(text: string): string {
 }
 
 // Auto line-wrapping for jsPDF reports
-function renderWrappedText(doc: jsPDF, text: string, x: number, y: number, maxWidth: number, lineHeight: number = 6): number {
-  const words = text.split(' ');
+function renderWrappedText(doc: jsPDF, text: unknown, x: number, y: number, maxWidth: number, lineHeight: number = 6): number {
+  // Model-generated fields are not guaranteed to be present or to be strings.
+  // Calling .split() on undefined threw a TypeError that aborted the whole
+  // export, so the download button appeared to do nothing at all.
+  const safeText = typeof text === 'string' ? text : (text == null ? '' : String(text));
+  const words = safeText.split(' ');
   let line = '';
   let currentY = y;
   
@@ -82,10 +87,11 @@ export function UretimPlanıView({ project, onUpdateProject }: UretimPlaniProps)
       const response = await fetch('/api/generate-production-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project })
+        body: JSON.stringify({ project: sanitizeProjectForApi(project) })
       });
       if (!response.ok) {
-        throw new Error('İmalat ve tedarik planı üretilemedi.');
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `İmalat ve tedarik planı üretilemedi (HTTP ${response.status}).`);
       }
       const result = await response.json();
 
@@ -265,265 +271,275 @@ export function UretimPlanıView({ project, onUpdateProject }: UretimPlaniProps)
 
   // Download Summarized PDF (Özet Plan)
   const handleDownloadSummaryPdf = () => {
-    const summary = project.productionPlanSummary;
-    if (!summary) return;
+    try {
+        const summary = project.productionPlanSummary;
+        if (!summary) return;
 
-    const doc = new jsPDF();
+        const doc = new jsPDF();
     
-    // Cover/Header
-    doc.setFillColor(17, 17, 17);
-    doc.rect(0, 0, 210, 40, 'F');
-    doc.setTextColor(197, 160, 89);
-    doc.setFont('times', 'italic');
-    doc.setFontSize(20);
-    doc.text(normalizeTurkishForPdf('ZEHIR BEBEK - OZET IMALAT VE TEDARIK PLANI'), 15, 20);
+        // Cover/Header
+        doc.setFillColor(17, 17, 17);
+        doc.rect(0, 0, 210, 40, 'F');
+        doc.setTextColor(197, 160, 89);
+        doc.setFont('times', 'italic');
+        doc.setFontSize(20);
+        doc.text(normalizeTurkishForPdf('ZEHIR BEBEK - OZET IMALAT VE TEDARIK PLANI'), 15, 20);
     
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(120, 120, 120);
-    doc.text(normalizeTurkishForPdf("Eto'nun Sahne Tasarimi Asistani"), 15, 30);
-    doc.text(new Date().toLocaleDateString('tr-TR'), 175, 30);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(120, 120, 120);
+        doc.text(normalizeTurkishForPdf("Eto'nun Sahne Tasarimi Asistani"), 15, 30);
+        doc.text(new Date().toLocaleDateString('tr-TR'), 175, 30);
 
-    // Project Metadata Box
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(40, 40, 40);
-    doc.text(normalizeTurkishForPdf(`PROJE: ${project.name}`), 15, 48);
+        // Project Metadata Box
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(40, 40, 40);
+        doc.text(normalizeTurkishForPdf(`PROJE: ${project.name}`), 15, 48);
     
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(100, 100, 100);
-    doc.text(normalizeTurkishForPdf(`Hedef Sahne: ${project.sahne || 'Belirtilmedi'}`), 15, 53);
-    doc.text(normalizeTurkishForPdf(`Kurum / Yapim: ${project.kurum || 'Belirtilmedi'}`), 100, 53);
-    doc.text(normalizeTurkishForPdf(`Sahne Olculeri (En x Boy x Yuk): ${project.width}m x ${project.length}m x ${project.height}m`), 15, 58);
-    doc.line(15, 61, 195, 61);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(100, 100, 100);
+        doc.text(normalizeTurkishForPdf(`Hedef Sahne: ${project.sahne || 'Belirtilmedi'}`), 15, 53);
+        doc.text(normalizeTurkishForPdf(`Kurum / Yapim: ${project.kurum || 'Belirtilmedi'}`), 100, 53);
+        doc.text(normalizeTurkishForPdf(`Sahne Olculeri (En x Boy x Yuk): ${project.width}m x ${project.length}m x ${project.height}m`), 15, 58);
+        doc.line(15, 61, 195, 61);
 
-    let y = 68;
+        let y = 68;
 
-    // Integrated Approved Technical Drawings list
-    if (approvedDrawings.length > 0) {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.setTextColor(40, 40, 40);
-      doc.text(normalizeTurkishForPdf('Onayli Sahne Yerlesim & Teknik Cizim Paftalari:'), 15, y);
-      y += 6;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      doc.setTextColor(80, 80, 80);
-      approvedDrawings.forEach(d => {
-        doc.text(normalizeTurkishForPdf(`* ${d.title} (Olcek: ${d.scale})`), 20, y);
-        y += 5;
-      });
-      y += 5;
+        // Integrated Approved Technical Drawings list
+        if (approvedDrawings.length > 0) {
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(11);
+          doc.setTextColor(40, 40, 40);
+          doc.text(normalizeTurkishForPdf('Onayli Sahne Yerlesim & Teknik Cizim Paftalari:'), 15, y);
+          y += 6;
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(9);
+          doc.setTextColor(80, 80, 80);
+          approvedDrawings.forEach(d => {
+            doc.text(normalizeTurkishForPdf(`* ${d.title} (Olcek: ${d.scale})`), 20, y);
+            y += 5;
+          });
+          y += 5;
+        }
+
+        // Materials table
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.setTextColor(40, 40, 40);
+        doc.text(normalizeTurkishForPdf('1. Gerekli Temel Malzeme Listesi'), 15, y);
+        y += 8;
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text(normalizeTurkishForPdf('MALZEME ADI'), 15, y);
+        doc.text(normalizeTurkishForPdf('MIKTAR'), 100, y);
+        doc.text(normalizeTurkishForPdf('ACIKLAMA / NOT'), 130, y);
+        doc.line(15, y + 2, 195, y + 2);
+        y += 8;
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(70, 70, 70);
+
+        summary.materialList.forEach((mat: any) => {
+          if (y > 270) {
+            doc.addPage();
+            y = 20;
+          }
+          doc.text(normalizeTurkishForPdf(mat.item), 15, y);
+          doc.text(normalizeTurkishForPdf(mat.qty), 100, y);
+          y = renderWrappedText(doc, mat.notes, 130, y, 65, 5) + 3;
+        });
+
+        // Job sequence
+        y += 10;
+        if (y > 250) {
+          doc.addPage();
+          y = 20;
+        }
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.setTextColor(40, 40, 40);
+        doc.text(normalizeTurkishForPdf('2. Temel Is Sirasi'), 15, y);
+        y += 8;
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        summary.jobSequence.forEach((step: string, idx: number) => {
+          if (y > 270) {
+            doc.addPage();
+            y = 20;
+          }
+          y = renderWrappedText(doc, `${idx + 1}. ${step}`, 15, y, 180, 5) + 2;
+        });
+
+        // Append accessories
+        y += 8;
+        appendAccessoriesToPdf(doc, y);
+
+        doc.save(`${project.name.replace(/\s+/g, '_')}_ozet_uretim_plani.pdf`);
+    } catch (pdfErr: any) {
+      console.error('Özet plan PDF hatası:', pdfErr);
+      setErr(`PDF oluşturulamadı: ${pdfErr?.message || 'bilinmeyen hata'}`);
     }
-
-    // Materials table
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.setTextColor(40, 40, 40);
-    doc.text(normalizeTurkishForPdf('1. Gerekli Temel Malzeme Listesi'), 15, y);
-    y += 8;
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.text(normalizeTurkishForPdf('MALZEME ADI'), 15, y);
-    doc.text(normalizeTurkishForPdf('MIKTAR'), 100, y);
-    doc.text(normalizeTurkishForPdf('ACIKLAMA / NOT'), 130, y);
-    doc.line(15, y + 2, 195, y + 2);
-    y += 8;
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(70, 70, 70);
-
-    summary.materialList.forEach((mat: any) => {
-      if (y > 270) {
-        doc.addPage();
-        y = 20;
-      }
-      doc.text(normalizeTurkishForPdf(mat.item), 15, y);
-      doc.text(normalizeTurkishForPdf(mat.qty), 100, y);
-      y = renderWrappedText(doc, mat.notes, 130, y, 65, 5) + 3;
-    });
-
-    // Job sequence
-    y += 10;
-    if (y > 250) {
-      doc.addPage();
-      y = 20;
-    }
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.setTextColor(40, 40, 40);
-    doc.text(normalizeTurkishForPdf('2. Temel Is Sirasi'), 15, y);
-    y += 8;
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    summary.jobSequence.forEach((step: string, idx: number) => {
-      if (y > 270) {
-        doc.addPage();
-        y = 20;
-      }
-      y = renderWrappedText(doc, `${idx + 1}. ${step}`, 15, y, 180, 5) + 2;
-    });
-
-    // Append accessories
-    y += 8;
-    appendAccessoriesToPdf(doc, y);
-
-    doc.save(`${project.name.replace(/\s+/g, '_')}_ozet_uretim_plani.pdf`);
   };
 
   // Download Detailed PDF (Detaylı Plan)
   const handleDownloadDetailedPdf = () => {
-    const detailed = project.productionPlanDetailed;
-    if (!detailed) return;
+    try {
+        const detailed = project.productionPlanDetailed;
+        if (!detailed) return;
 
-    const doc = new jsPDF();
+        const doc = new jsPDF();
     
-    // Header
-    doc.setFillColor(17, 17, 17);
-    doc.rect(0, 0, 210, 40, 'F');
-    doc.setTextColor(197, 160, 89);
-    doc.setFont('times', 'italic');
-    doc.setFontSize(20);
-    doc.text(normalizeTurkishForPdf('ZEHIR BEBEK - DETAYLI ATOLYE IMALAT PLANI'), 15, 20);
+        // Header
+        doc.setFillColor(17, 17, 17);
+        doc.rect(0, 0, 210, 40, 'F');
+        doc.setTextColor(197, 160, 89);
+        doc.setFont('times', 'italic');
+        doc.setFontSize(20);
+        doc.text(normalizeTurkishForPdf('ZEHIR BEBEK - DETAYLI ATOLYE IMALAT PLANI'), 15, 20);
     
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(120, 120, 120);
-    doc.text(normalizeTurkishForPdf("Eto'nun Sahne Tasarimi Asistani"), 15, 30);
-    doc.text(new Date().toLocaleDateString('tr-TR'), 175, 30);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(120, 120, 120);
+        doc.text(normalizeTurkishForPdf("Eto'nun Sahne Tasarimi Asistani"), 15, 30);
+        doc.text(new Date().toLocaleDateString('tr-TR'), 175, 30);
 
-    // Project Metadata Box
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(40, 40, 40);
-    doc.text(normalizeTurkishForPdf(`PROJE: ${project.name}`), 15, 48);
+        // Project Metadata Box
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(40, 40, 40);
+        doc.text(normalizeTurkishForPdf(`PROJE: ${project.name}`), 15, 48);
     
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(100, 100, 100);
-    doc.text(normalizeTurkishForPdf(`Hedef Sahne: ${project.sahne || 'Belirtilmedi'}`), 15, 53);
-    doc.text(normalizeTurkishForPdf(`Kurum / Yapim: ${project.kurum || 'Belirtilmedi'}`), 100, 53);
-    doc.text(normalizeTurkishForPdf(`Sahne Olculeri (En x Boy x Yuk): ${project.width}m x ${project.length}m x ${project.height}m`), 15, 58);
-    doc.line(15, 61, 195, 61);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(100, 100, 100);
+        doc.text(normalizeTurkishForPdf(`Hedef Sahne: ${project.sahne || 'Belirtilmedi'}`), 15, 53);
+        doc.text(normalizeTurkishForPdf(`Kurum / Yapim: ${project.kurum || 'Belirtilmedi'}`), 100, 53);
+        doc.text(normalizeTurkishForPdf(`Sahne Olculeri (En x Boy x Yuk): ${project.width}m x ${project.length}m x ${project.height}m`), 15, 58);
+        doc.line(15, 61, 195, 61);
 
-    let y = 68;
+        let y = 68;
 
-    // Integrated Approved Technical Drawings list
-    if (approvedDrawings.length > 0) {
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.setTextColor(40, 40, 40);
-      doc.text(normalizeTurkishForPdf('Referans Alinan Onayli Teknik Paftalar:'), 15, y);
-      y += 6;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      doc.setTextColor(80, 80, 80);
-      approvedDrawings.forEach(d => {
-        doc.text(normalizeTurkishForPdf(`* ${d.title} (Mekan: ${d.scale} | Onayli)`), 20, y);
+        // Integrated Approved Technical Drawings list
+        if (approvedDrawings.length > 0) {
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(11);
+          doc.setTextColor(40, 40, 40);
+          doc.text(normalizeTurkishForPdf('Referans Alinan Onayli Teknik Paftalar:'), 15, y);
+          y += 6;
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(9);
+          doc.setTextColor(80, 80, 80);
+          approvedDrawings.forEach(d => {
+            doc.text(normalizeTurkishForPdf(`* ${d.title} (Mekan: ${d.scale} | Onayli)`), 20, y);
+            y += 5;
+          });
+          y += 5;
+        }
+
+        // Crew requirements and estimate
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.setTextColor(40, 40, 40);
+        doc.text(normalizeTurkishForPdf('1. Atolye Ekip Ihtiyaci ve Zaman Tahmini'), 15, y);
+        y += 8;
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10);
+        doc.text(normalizeTurkishForPdf(`Tahmini Imalat Suresi: ${detailed.durationEstimate}`), 15, y);
+        y += 6;
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text(normalizeTurkishForPdf('Gerekli Atolye Kadrosu & Is Gucu:'), 15, y);
         y += 5;
-      });
-      y += 5;
-    }
 
-    // Crew requirements and estimate
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.setTextColor(40, 40, 40);
-    doc.text(normalizeTurkishForPdf('1. Atolye Ekip Ihtiyaci ve Zaman Tahmini'), 15, y);
-    y += 8;
+        doc.setFont('helvetica', 'normal');
+        detailed.teamRequirements.forEach((role: string) => {
+          doc.text(normalizeTurkishForPdf(`- ${role}`), 20, y);
+          y += 5;
+        });
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10);
-    doc.text(normalizeTurkishForPdf(`Tahmini Imalat Suresi: ${detailed.durationEstimate}`), 15, y);
-    y += 6;
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.text(normalizeTurkishForPdf('Gerekli Atolye Kadrosu & Is Gucu:'), 15, y);
-    y += 5;
-
-    doc.setFont('helvetica', 'normal');
-    detailed.teamRequirements.forEach((role: string) => {
-      doc.text(normalizeTurkishForPdf(`- ${role}`), 20, y);
-      y += 5;
-    });
-
-    y += 10;
-    if (y > 250) {
-      doc.addPage();
-      y = 20;
-    }
-
-    // Detailed material spec
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text(normalizeTurkishForPdf('2. Detayli Malzeme ve Boyut Spesifikasyonlari'), 15, y);
-    y += 8;
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
-    doc.text(normalizeTurkishForPdf('MALZEME'), 15, y);
-    doc.text(normalizeTurkishForPdf('OZELLIK / BILGI'), 70, y);
-    doc.text(normalizeTurkishForPdf('MIKTAR'), 140, y);
-    doc.text(normalizeTurkishForPdf('TAHMINI MALIYET'), 165, y);
-    doc.line(15, y + 2, 195, y + 2);
-    y += 8;
-
-    doc.setFont('helvetica', 'normal');
-    detailed.materialList.forEach((mat: any) => {
-      if (y > 270) {
-        doc.addPage();
-        y = 20;
-      }
-      doc.text(normalizeTurkishForPdf(mat.item), 15, y);
-      doc.text(normalizeTurkishForPdf(mat.qty), 140, y);
-      doc.text(normalizeTurkishForPdf(mat.costEstimate || '-'), 165, y);
-      y = renderWrappedText(doc, mat.spec, 70, y, 65, 5) + 3;
-    });
-
-    // Step-by-step phases
-    doc.addPage();
-    y = 20;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.text(normalizeTurkishForPdf('3. Asama Asama Imalat Is Akisi'), 15, y);
-    y += 8;
-
-    detailed.jobSequence.forEach((phase: any) => {
-      if (y > 240) {
-        doc.addPage();
-        y = 20;
-      }
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10);
-      doc.setTextColor(197, 160, 89);
-      doc.text(normalizeTurkishForPdf(`● AŞAMA: ${phase.step} (Evre: ${phase.phase} | Sure: ${phase.duration})`), 15, y);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      doc.setTextColor(80, 80, 80);
-      y += 5;
-      doc.text(normalizeTurkishForPdf(`Sorumlu Ekip: ${phase.team}`), 20, y);
-      y += 5;
-
-      phase.steps.forEach((sub: string) => {
-        if (y > 270) {
+        y += 10;
+        if (y > 250) {
           doc.addPage();
           y = 20;
         }
-        y = renderWrappedText(doc, `- ${sub}`, 20, y, 175, 5) + 2;
-      });
-      y += 4;
-    });
 
-    // Append accessories
-    y += 8;
-    appendAccessoriesToPdf(doc, y);
+        // Detailed material spec
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.text(normalizeTurkishForPdf('2. Detayli Malzeme ve Boyut Spesifikasyonlari'), 15, y);
+        y += 8;
 
-    doc.save(`${project.name.replace(/\s+/g, '_')}_detayli_uretim_plani.pdf`);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text(normalizeTurkishForPdf('MALZEME'), 15, y);
+        doc.text(normalizeTurkishForPdf('OZELLIK / BILGI'), 70, y);
+        doc.text(normalizeTurkishForPdf('MIKTAR'), 140, y);
+        doc.text(normalizeTurkishForPdf('TAHMINI MALIYET'), 165, y);
+        doc.line(15, y + 2, 195, y + 2);
+        y += 8;
+
+        doc.setFont('helvetica', 'normal');
+        detailed.materialList.forEach((mat: any) => {
+          if (y > 270) {
+            doc.addPage();
+            y = 20;
+          }
+          doc.text(normalizeTurkishForPdf(mat.item), 15, y);
+          doc.text(normalizeTurkishForPdf(mat.qty), 140, y);
+          doc.text(normalizeTurkishForPdf(mat.costEstimate || '-'), 165, y);
+          y = renderWrappedText(doc, mat.spec, 70, y, 65, 5) + 3;
+        });
+
+        // Step-by-step phases
+        doc.addPage();
+        y = 20;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.text(normalizeTurkishForPdf('3. Asama Asama Imalat Is Akisi'), 15, y);
+        y += 8;
+
+        detailed.jobSequence.forEach((phase: any) => {
+          if (y > 240) {
+            doc.addPage();
+            y = 20;
+          }
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10);
+          doc.setTextColor(197, 160, 89);
+          doc.text(normalizeTurkishForPdf(`● AŞAMA: ${phase.step} (Evre: ${phase.phase} | Sure: ${phase.duration})`), 15, y);
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(9);
+          doc.setTextColor(80, 80, 80);
+          y += 5;
+          doc.text(normalizeTurkishForPdf(`Sorumlu Ekip: ${phase.team}`), 20, y);
+          y += 5;
+
+          phase.steps.forEach((sub: string) => {
+            if (y > 270) {
+              doc.addPage();
+              y = 20;
+            }
+            y = renderWrappedText(doc, `- ${sub}`, 20, y, 175, 5) + 2;
+          });
+          y += 4;
+        });
+
+        // Append accessories
+        y += 8;
+        appendAccessoriesToPdf(doc, y);
+
+        doc.save(`${project.name.replace(/\s+/g, '_')}_detayli_uretim_plani.pdf`);
+    } catch (pdfErr: any) {
+      console.error('Detaylı plan PDF hatası:', pdfErr);
+      setErr(`PDF oluşturulamadı: ${pdfErr?.message || 'bilinmeyen hata'}`);
+    }
   };
 
   // Identify re-used items (in more than 1 scene)

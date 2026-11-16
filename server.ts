@@ -670,8 +670,28 @@ function createProjectsBackup() {
   }
 }
 
-// Enable JSON parser with large limit for file uploads
-app.use(express.json({ limit: '50mb' }));
+// Enable JSON parser with large limit for file uploads.
+//
+// Projects legitimately carry base64 décor photos and technical drawings, so
+// the saved payload grows with the user's work. The analysis endpoints no
+// longer receive those images (see sanitizeProjectForApi on the client), but
+// /api/projects still must, and hitting this ceiling there breaks saving
+// permanently — so it is set well above the practical working size.
+const JSON_BODY_LIMIT = '250mb';
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
+
+// Turn express's raw body-size failure into an explanation the user can act on.
+app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err && (err.type === 'entity.too.large' || err.status === 413)) {
+    const message =
+      `Gönderilen veri sunucu sınırını (${JSON_BODY_LIMIT}) aştı. ` +
+      'Projedeki görseller çok büyük olabilir — bazı dekor görsellerini silmeyi ' +
+      'veya daha düşük çözünürlüklü sürümlerini yüklemeyi deneyin.';
+    addLog('error', `Payload too large: ${err.message || err.type}`);
+    return res.status(413).json({ error: message });
+  }
+  return next(err);
+});
 
 // 1. Projects persistence APIs
 app.get('/api/projects', (req, res) => {
@@ -2486,11 +2506,19 @@ app.post('/api/generate-movement-emotion', async (req, res) => {
       const progressMessage = `${batchNum - 1}/${totalBatches} sahne grubu işlendi, tahmini kalan süre: ${etaStr}`;
       addLog('info', progressMessage);
 
-      const batchSceneNames = batchScenes.map((s: any) => s.name.toLowerCase());
+      const batchSceneNames = batchScenes.map((s: any) => (s.name || '').toLowerCase());
+      // Olay records key their scene through `sahneNo` (see src/types.ts).
+      // `kullanildigiSahneler` belongs to Aksesuar only, so filtering on it
+      // matched nothing and the model never saw a single detected event —
+      // movement scores were derived from raw scene text alone.
       const relevantOlaylar = olaylarList.filter((o: any) => {
-        if (!o.kullanildigiSahneler) return false;
-        return o.kullanildigiSahneler.some((sName: string) => batchSceneNames.includes(sName.toLowerCase()));
+        const sceneKeys: string[] = [];
+        if (o.sahneNo) sceneKeys.push(String(o.sahneNo));
+        if (Array.isArray(o.kullanildigiSahneler)) sceneKeys.push(...o.kullanildigiSahneler);
+        if (sceneKeys.length === 0) return false;
+        return sceneKeys.some(key => batchSceneNames.includes(String(key).toLowerCase()));
       });
+      addLog('info', `Sahne grubu ${batchNum}/${totalBatches}: ${relevantOlaylar.length} ilgili olay bağlam olarak gönderiliyor.`);
 
       // Send the FULL REAL TEXT (including dialogues and directions) for accurate analysis
       const scenesSummary = batchScenes.map((s: any) => `ID: ${s.id}\nBAŞLIK: ${s.name}\nGERÇEK METİN:\n${s.content || 'Metin yok.'}`).join('\n\n---\n\n');

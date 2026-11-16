@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Project } from '../types';
+import { sanitizeProjectForApi } from '../utils/apiPayload';
 import { 
   TrendingUp, 
   Sparkles, 
@@ -34,8 +35,12 @@ function normalizeTurkishForPdf(text: string): string {
 }
 
 // Auto line-wrapping for jsPDF reports
-function renderWrappedText(doc: jsPDF, text: string, x: number, y: number, maxWidth: number, lineHeight: number = 6): number {
-  const words = text.split(' ');
+function renderWrappedText(doc: jsPDF, text: unknown, x: number, y: number, maxWidth: number, lineHeight: number = 6): number {
+  // Model-generated fields are not guaranteed to be present or to be strings.
+  // Calling .split() on undefined threw a TypeError that aborted the whole
+  // export, so the download button appeared to do nothing at all.
+  const safeText = typeof text === 'string' ? text : (text == null ? '' : String(text));
+  const words = safeText.split(' ');
   let line = '';
   let currentY = y;
   
@@ -131,10 +136,11 @@ export function HareketDuyguView({ project, onUpdateProject, addLog }: HareketDu
       const response = await fetch('/api/generate-movement-emotion', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ project, instruction })
+        body: JSON.stringify({ project: sanitizeProjectForApi(project), instruction })
       });
       if (!response.ok) {
-        throw new Error('Grafik ritim katsayıları üretilemedi.');
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Grafik ritim katsayıları üretilemedi (HTTP ${response.status}).`);
       }
       const result = await response.json();
       
@@ -206,108 +212,113 @@ export function HareketDuyguView({ project, onUpdateProject, addLog }: HareketDu
 
   // PDF Report Download
   const handleDownloadPdf = () => {
-    if (chartData.length === 0) return;
-    const doc = new jsPDF();
+    try {
+        if (chartData.length === 0) return;
+        const doc = new jsPDF();
     
-    // Header
-    doc.setFillColor(17, 17, 17);
-    doc.rect(0, 0, 210, 40, 'F');
-    doc.setTextColor(197, 160, 89);
-    doc.setFont('times', 'italic');
-    doc.setFontSize(22);
-    doc.text(normalizeTurkishForPdf('ZEHIR BEBEK - REJI HAREKET VE DUYGU ANALIZI'), 15, 20);
+        // Header
+        doc.setFillColor(17, 17, 17);
+        doc.rect(0, 0, 210, 40, 'F');
+        doc.setTextColor(197, 160, 89);
+        doc.setFont('times', 'italic');
+        doc.setFontSize(22);
+        doc.text(normalizeTurkishForPdf('ZEHIR BEBEK - REJI HAREKET VE DUYGU ANALIZI'), 15, 20);
     
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(120, 120, 120);
-    doc.text(normalizeTurkishForPdf("Eto'nun Sahne Tasarimi Asistani Tarafindan Otomatik Uretilmistir"), 15, 30);
-    doc.text(new Date().toLocaleDateString('tr-TR'), 175, 30);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(120, 120, 120);
+        doc.text(normalizeTurkishForPdf("Eto'nun Sahne Tasarimi Asistani Tarafindan Otomatik Uretilmistir"), 15, 30);
+        doc.text(new Date().toLocaleDateString('tr-TR'), 175, 30);
 
-    let y = 50;
+        let y = 50;
 
-    // Project Info Block
-    doc.setFillColor(245, 245, 245);
-    doc.rect(15, y, 180, 25, 'F');
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
-    doc.setTextColor(40, 40, 40);
-    doc.text(normalizeTurkishForPdf(`PROJE ADI: ${project.name}`), 20, y + 8);
-    doc.setFont('helvetica', 'normal');
-    doc.text(normalizeTurkishForPdf(`Olculer: ${project.width}m x ${project.length}m x ${project.height}m  |  Sahne Sayisi: ${scenesCount}`), 20, y + 16);
-    y += 35;
+        // Project Info Block
+        doc.setFillColor(245, 245, 245);
+        doc.rect(15, y, 180, 25, 'F');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(40, 40, 40);
+        doc.text(normalizeTurkishForPdf(`PROJE ADI: ${project.name}`), 20, y + 8);
+        doc.setFont('helvetica', 'normal');
+        doc.text(normalizeTurkishForPdf(`Olculer: ${project.width}m x ${project.length}m x ${project.height}m  |  Sahne Sayisi: ${scenesCount}`), 20, y + 16);
+        y += 35;
 
-    // Highlights Block
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.setTextColor(197, 160, 89);
-    doc.text(normalizeTurkishForPdf('GRAFIK TEPE VE DIP NOKTALARI ANALIZI'), 15, y);
-    y += 8;
+        // Highlights Block
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.setTextColor(197, 160, 89);
+        doc.text(normalizeTurkishForPdf('GRAFIK TEPE VE DIP NOKTALARI ANALIZI'), 15, y);
+        y += 8;
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9);
-    doc.setTextColor(60, 60, 60);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(60, 60, 60);
 
-    if (highestTempoScene) {
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(180, 50, 50);
-      doc.text(normalizeTurkishForPdf(`* EN YUKSEK TEMPO (ZIRVE): ${highestTempoScene.sceneName} (Ortalama: ${highestTempoScene.tempo}/10)`), 15, y);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(60, 60, 60);
-      y = renderWrappedText(doc, `Gerekce: ${highestTempoScene.justification}`, 20, y + 5, 170) + 3;
-    }
-    if (lowestTempoScene) {
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(50, 100, 150);
-      doc.text(normalizeTurkishForPdf(`* EN DUSUK TEMPO (DIP): ${lowestTempoScene.sceneName} (Ortalama: ${lowestTempoScene.tempo}/10)`), 15, y);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(60, 60, 60);
-      y = renderWrappedText(doc, `Gerekce: ${lowestTempoScene.justification}`, 20, y + 5, 170) + 6;
-    }
+        if (highestTempoScene) {
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(180, 50, 50);
+          doc.text(normalizeTurkishForPdf(`* EN YUKSEK TEMPO (ZIRVE): ${highestTempoScene.sceneName} (Ortalama: ${highestTempoScene.tempo}/10)`), 15, y);
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(60, 60, 60);
+          y = renderWrappedText(doc, `Gerekce: ${highestTempoScene.justification}`, 20, y + 5, 170) + 3;
+        }
+        if (lowestTempoScene) {
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(50, 100, 150);
+          doc.text(normalizeTurkishForPdf(`* EN DUSUK TEMPO (DIP): ${lowestTempoScene.sceneName} (Ortalama: ${lowestTempoScene.tempo}/10)`), 15, y);
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(60, 60, 60);
+          y = renderWrappedText(doc, `Gerekce: ${lowestTempoScene.justification}`, 20, y + 5, 170) + 6;
+        }
 
-    if (highestEmotion) {
-      doc.setFont('helvetica', 'bold');
-      doc.text(normalizeTurkishForPdf(`* DUYGUSAL EN UST SAHNE: ${highestEmotion.sceneName} (Puan: ${highestEmotion.emotion}/10)`), 15, y);
-      doc.setFont('helvetica', 'normal');
-      y = renderWrappedText(doc, `Gerekce: ${highestEmotion.justification}`, 20, y + 5, 170) + 3;
-    }
-    if (highestMovement) {
-      doc.setFont('helvetica', 'bold');
-      doc.text(normalizeTurkishForPdf(`* FIZIKSEL HAREKET EN UST SAHNE: ${highestMovement.sceneName} (Puan: ${highestMovement.movement}/10)`), 15, y);
-      doc.setFont('helvetica', 'normal');
-      y = renderWrappedText(doc, `Gerekce: ${highestMovement.justification}`, 20, y + 5, 170) + 10;
-    }
+        if (highestEmotion) {
+          doc.setFont('helvetica', 'bold');
+          doc.text(normalizeTurkishForPdf(`* DUYGUSAL EN UST SAHNE: ${highestEmotion.sceneName} (Puan: ${highestEmotion.emotion}/10)`), 15, y);
+          doc.setFont('helvetica', 'normal');
+          y = renderWrappedText(doc, `Gerekce: ${highestEmotion.justification}`, 20, y + 5, 170) + 3;
+        }
+        if (highestMovement) {
+          doc.setFont('helvetica', 'bold');
+          doc.text(normalizeTurkishForPdf(`* FIZIKSEL HAREKET EN UST SAHNE: ${highestMovement.sceneName} (Puan: ${highestMovement.movement}/10)`), 15, y);
+          doc.setFont('helvetica', 'normal');
+          y = renderWrappedText(doc, `Gerekce: ${highestMovement.justification}`, 20, y + 5, 170) + 10;
+        }
 
-    // Chronological Table
-    doc.addPage();
-    y = 20;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(12);
-    doc.setTextColor(197, 160, 89);
-    doc.text(normalizeTurkishForPdf('KRONOLOJIK SAHNE RITIM TABLOSU'), 15, y);
-    y += 10;
-
-    chartData.forEach((row: any) => {
-      if (y > 260) {
+        // Chronological Table
         doc.addPage();
         y = 20;
-      }
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10);
-      doc.setTextColor(20, 20, 20);
-      doc.text(normalizeTurkishForPdf(`${row.sceneName}`), 15, y);
-      
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      doc.setTextColor(100, 100, 100);
-      const scoresText = row.isMissing 
-        ? '[VERI EKSIK - Analiz Edilemedi]' 
-        : `[Duygu: ${row.emotion}/10 | Hareket: ${row.movement}/10]`;
-      doc.text(normalizeTurkishForPdf(scoresText), 120, y);
-      
-      y = renderWrappedText(doc, row.justification, 15, y + 5, 180, 5) + 6;
-    });
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(12);
+        doc.setTextColor(197, 160, 89);
+        doc.text(normalizeTurkishForPdf('KRONOLOJIK SAHNE RITIM TABLOSU'), 15, y);
+        y += 10;
 
-    doc.save(`${project.name.replace(/\s+/g, '_')}_reji_ritim_analizi.pdf`);
+        chartData.forEach((row: any) => {
+          if (y > 260) {
+            doc.addPage();
+            y = 20;
+          }
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(10);
+          doc.setTextColor(20, 20, 20);
+          doc.text(normalizeTurkishForPdf(`${row.sceneName}`), 15, y);
+      
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(9);
+          doc.setTextColor(100, 100, 100);
+          const scoresText = row.isMissing 
+            ? '[VERI EKSIK - Analiz Edilemedi]' 
+            : `[Duygu: ${row.emotion}/10 | Hareket: ${row.movement}/10]`;
+          doc.text(normalizeTurkishForPdf(scoresText), 120, y);
+      
+          y = renderWrappedText(doc, row.justification, 15, y + 5, 180, 5) + 6;
+        });
+
+        doc.save(`${project.name.replace(/\s+/g, '_')}_reji_ritim_analizi.pdf`);
+    } catch (pdfErr: any) {
+      console.error('Ritim raporu PDF hatası:', pdfErr);
+      setErr(`PDF oluşturulamadı: ${pdfErr?.message || 'bilinmeyen hata'}`);
+    }
   };
 
   // SVG Visual Export helper

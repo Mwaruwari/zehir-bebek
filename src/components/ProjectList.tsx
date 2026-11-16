@@ -70,7 +70,9 @@ export default function ProjectList({
         </span>
       );
     }
-    if (p.analysis && p.analysis.aksesuarlar.length > 0) {
+    // Optional chaining matters here: a project whose analysis object lacks
+    // `aksesuarlar` would throw during render and blank the entire list.
+    if ((p.analysis?.aksesuarlar?.length ?? 0) > 0) {
       return (
         <span className="flex items-center gap-1.5 text-[10px] uppercase font-mono tracking-wider font-bold bg-[#111] border border-green-900/40 text-green-400 px-2.5 py-1 rounded">
           <CheckCircle className="w-3 h-3" /> Analiz Edildi
