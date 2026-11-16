@@ -3,7 +3,6 @@ import { Project, ServerLog } from './types';
 import ProjectList from './components/ProjectList';
 import MetinAnalizi from './components/MetinAnalizi';
 import LogViewer from './components/LogViewer';
-import { UretimPlanıView } from './components/UretimPlani';
 import { HareketDuyguView } from './components/HareketDuygu';
 import { SembolikAnlatimView } from './components/SembolikAnlatim';
 import { BackupManagerModal } from './components/BackupManagerModal';
@@ -350,7 +349,6 @@ export default function App() {
   // Tabs structure metadata matching the mockup exactly
   const tabs = [
     { label: 'Metin Analizi', subtitle: 'Senaryo & Dekor Analizi', icon: FileText, desc: 'Oyun metni analizi ve mekan tespiti' },
-    { label: 'Üretim Planı', subtitle: 'Bütçe & Atölye Kartları', icon: ClipboardList, desc: 'Konsolide dekor ve aksesuar tedarik tablosu' },
     { label: 'Duygu Grafiği', subtitle: 'Hareket & Duygu Eğrisi', icon: TrendingUp, desc: 'Duygusal zirveler ve reji ritim eğrisi' },
     { label: 'Sembolik Anlatım', subtitle: 'Alt Metin & Semboller', icon: Compass, desc: 'Tematik referanslar ve sembol moodboard' }
   ];
@@ -623,19 +621,13 @@ export default function App() {
                     />
                   )}
                   {activeTab === 1 && (
-                    <UretimPlanıView
-                      project={selectedProject}
-                      onUpdateProject={handleUpdateProject}
-                    />
-                  )}
-                  {activeTab === 2 && (
                     <HareketDuyguView
                       project={selectedProject}
                       onUpdateProject={handleUpdateProject}
                       addLog={addClientLog}
                     />
                   )}
-                  {activeTab === 3 && (
+                  {activeTab === 2 && (
                     <SembolikAnlatimView
                       project={selectedProject}
                       onUpdateProject={handleUpdateProject}
