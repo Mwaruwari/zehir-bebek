@@ -68,6 +68,8 @@ export interface Aksesuar {
   tasarimKarari?: TasarimKarari;
   /** Eski sürümlerden kalan kullanım notu. Yeni analizlerde üretilmez, tabloda gösterilmez. */
   aciklama?: string;
+  /** Kullanıcı bu satıra elle dokunduysa true. Yeniden çalıştırma bu satırı ezmez. */
+  elleDuzenlendi?: boolean;
   changed?: 'added' | 'removed' | null;
 }
 

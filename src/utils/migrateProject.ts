@@ -99,6 +99,8 @@ export function migrateAksesuar(raw: any): Aksesuar {
   const aciklama = asString(item.aciklama);
   if (aciklama) migrated.aciklama = aciklama;
 
+  if (item.elleDuzenlendi === true) migrated.elleDuzenlendi = true;
+
   if (item.changed === 'added' || item.changed === 'removed') {
     migrated.changed = item.changed;
   }
