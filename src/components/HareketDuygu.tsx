@@ -10,7 +10,8 @@ import {
   Image as ImageIcon,
   Flame,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  AlertTriangle
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { jsPDF } from 'jspdf';
@@ -404,6 +405,23 @@ export function HareketDuyguView({ project, onUpdateProject, addLog }: HareketDu
         </div>
         <span className="text-red-500 font-serif italic">Eto'nun sahne tasarımı asistanı</span>
       </div>
+
+      {/* Sahne yoksa grafik üretilemez; düğmeyi sessizce söndürmek yerine nedenini söyle */}
+      {scenesCount === 0 && (
+        <div className="bg-amber-950/20 border border-amber-800/50 rounded-lg p-4 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-xs font-bold text-amber-400 font-mono uppercase tracking-wider">
+              Önce metin analizini tamamlaman gerekiyor
+            </p>
+            <p className="text-[11px] text-amber-200/70 mt-1 leading-relaxed">
+              Bu projede henüz sahne yok, grafik de sahnelerin üzerine kuruluyor. <strong>Metin Analizi</strong>{' '}
+              sekmesine geç ve oradaki sarı uyarıdaki "Analizi Başlat" düğmesine bas. Analiz bitince bu sayfadaki
+              düğme kendiliğinden çalışır hale gelir.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="bg-[#111] border border-[#2a2a2a] rounded p-6 shadow-2xl space-y-6">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
