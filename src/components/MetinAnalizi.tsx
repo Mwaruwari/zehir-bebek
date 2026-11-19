@@ -6,6 +6,7 @@ import {
   OGE_TUR_SECENEKLERI, OGE_KAYNAK_SECENEKLERI
 } from '../types';
 import { detectSceneHeaderLines, countSceneHeaderLines } from '../utils/sceneHeaders';
+import { preserveManualFields, countManuallyEdited } from '../utils/preserveManualFields';
 import { 
   UploadCloud, 
   File, 
@@ -160,6 +161,9 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
     olaylar: false,
     aksesuarlar: false,
   });
+
+  /** Yeniden analiz uyarısı: elle düzenlenmiş satır sayısı. */
+  const [rerunWarning, setRerunWarning] = useState<{ elleSayisi: number } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -745,11 +749,27 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
     }
   };
 
-  // Run all scenes consecutively -> Refactored to a single unified API call
-  const handleAnalyzeAll = async () => {
+  /**
+   * Bütünsel analizi başlatmadan önce elle düzenlenmiş satır var mı diye bakar.
+   * Varsa önce uyarır: kullanıcı koruyarak mı yoksa sıfırdan mı istediğini seçer.
+   */
+  const handleAnalyzeAllRequest = () => {
     if (!project.scriptText || !project.scenes || project.scenes.length === 0) return;
+
+    const elleSayisi = countManuallyEdited(project.analysis?.aksesuarlar);
+    if (elleSayisi > 0) {
+      setRerunWarning({ elleSayisi });
+      return;
+    }
+
     if (!confirm('Tüm oyun metni tek parça halinde yapay zeka ile analiz edilecektir. Devam etmek istiyor musunuz?')) return;
-    
+    handleAnalyzeAll(true);
+  };
+
+  // Run all scenes consecutively -> Refactored to a single unified API call
+  const handleAnalyzeAll = async (elleDuzenlemeleriKoru: boolean) => {
+    if (!project.scriptText || !project.scenes || project.scenes.length === 0) return;
+
     setFileLoading(true);
     setAnalysisProgress({ extraction: 'completed', mekanOlay: 'running', aksesuar: 'running' });
     addLog('info', 'Yapay zeka ile bütünsel metin analizi işlemi başlatıldı...');
@@ -767,13 +787,25 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
         };
       }
 
+      // Elle girilen alanları (Tür, Kaynak, Adet, Ölçü, Anlam, Karar) koru.
+      const yeniAksesuarlar = elleDuzenlemeleriKoru
+        ? preserveManualFields(result.aksesuarlar, project.analysis?.aksesuarlar)
+        : result.aksesuarlar;
+
+      if (elleDuzenlemeleriKoru) {
+        const korunan = countManuallyEdited(project.analysis?.aksesuarlar);
+        if (korunan > 0) {
+          addLog('info', `Elle düzenlenmiş ${korunan} satırın alanları korundu.`);
+        }
+      }
+
       onUpdateProject({
         ...project,
         analysis: {
           mekanlar: result.mekanlar,
           gecisler: result.gecisler,
           olaylar: result.olaylar,
-          aksesuarlar: result.aksesuarlar,
+          aksesuarlar: yeniAksesuarlar,
           debug: newDebug
         }
       });
@@ -900,16 +932,19 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
       // Re-merge accessories: remove this scene reference for deleted ones, or add
       const otherAksesuarlar = newAksesuarlar.filter(a => !a.kullanildigiSahneler?.includes(sceneName));
       
-      // Merge verified ones back
-      newAksesuarlar = [
-        ...otherAksesuarlar,
-        ...finalizedList.map(a => ({
+      // Merge verified ones back. Düzeltme çıktısı elle girilen alanları
+      // taşımadığı için önceki değerleri geri yazıyoruz.
+      const sceneRows = preserveManualFields(
+        finalizedList.map(a => ({
           ...a,
-          kullanildigiSahneler: a.kullanildigiSahneler?.includes(sceneName) 
-            ? a.kullanildigiSahneler 
+          kullanildigiSahneler: a.kullanildigiSahneler?.includes(sceneName)
+            ? a.kullanildigiSahneler
             : [...(a.kullanildigiSahneler || []), sceneName]
-        }))
-      ];
+        })),
+        project.analysis.aksesuarlar
+      );
+
+      newAksesuarlar = [...otherAksesuarlar, ...sceneRows];
     }
 
     onUpdateProject({
@@ -953,8 +988,9 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
     value: Aksesuar[K]
   ) => {
     if (!project.analysis) return;
+    // Elle dokunulan satır işaretlenir; yeniden çalıştırma bu satırı ezmez.
     const updatedAksesuarlar = (project.analysis.aksesuarlar || []).map(a =>
-      a.id === id ? { ...a, [field]: value } : a
+      a.id === id ? { ...a, [field]: value, elleDuzenlendi: true } : a
     );
 
     onUpdateProject({
@@ -965,6 +1001,52 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
       }
     });
     addLog('info', `Öğe alanı güncellendi: ${String(field)} = "${String(value) || 'boş'}"`);
+  };
+
+  /** Öğe tablosuna boş bir satır ekler. */
+  const handleAddAksesuarRow = () => {
+    const bos: Aksesuar = {
+      id: Math.random().toString(36).substring(2, 9),
+      ad: '',
+      tur: '',
+      kullanildigiSahneler: [],
+      kaynakAlinti: '',
+      kaynak: '',
+      adet: '',
+      olcu: '',
+      anlamTasiyor: '',
+      tasarimKarari: '',
+      elleDuzenlendi: true
+    };
+
+    onUpdateProject({
+      ...project,
+      analysis: {
+        mekanlar: project.analysis?.mekanlar || [],
+        gecisler: project.analysis?.gecisler || [],
+        olaylar: project.analysis?.olaylar || [],
+        debug: project.analysis?.debug,
+        aksesuarlar: [...(project.analysis?.aksesuarlar || []), bos]
+      }
+    });
+    addLog('info', 'Öğe tablosuna yeni boş satır eklendi.');
+  };
+
+  /** Öğe tablosundan bir satırı siler. */
+  const handleDeleteAksesuarRow = (id: string) => {
+    if (!project.analysis) return;
+    const item = (project.analysis.aksesuarlar || []).find(a => a.id === id);
+    const ad = item?.ad?.trim() || 'isimsiz öğe';
+    if (!confirm(`"${ad}" satırı silinecek. Emin misin?`)) return;
+
+    onUpdateProject({
+      ...project,
+      analysis: {
+        ...project.analysis,
+        aksesuarlar: (project.analysis.aksesuarlar || []).filter(a => a.id !== id)
+      }
+    });
+    addLog('info', `Öğe satırı silindi: "${ad}"`);
   };
 
   const getPerdeGroup = (sceneName: string, idx: number, total: number): 'Perde 1' | 'Perde 2' => {
@@ -1645,7 +1727,7 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
                     </div>
 
                     <button
-                      onClick={handleAnalyzeAll}
+                      onClick={handleAnalyzeAllRequest}
                       className="w-full py-2 bg-red-950/10 border border-red-900/30 hover:bg-red-950/20 text-red-500 text-xs font-bold rounded flex items-center justify-center gap-1.5 transition-colors"
                       id="btn-analyze-all"
                     >
@@ -2369,20 +2451,43 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
                 <th className="p-3 w-28">Ölçü (cm)</th>
                 <th className="p-3 w-28">Anlam taşıyor</th>
                 <th className="p-3 min-w-[120px]">Tasarım kararı</th>
+                <th className="p-3 w-10"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#1f2125]">
               {(!project.analysis?.aksesuarlar || project.analysis.aksesuarlar.length === 0) ? (
                 <tr>
-                  <td colSpan={10} className="p-8 text-center text-zinc-500 italic text-xs">
-                    Analiz sonucunda dekor veya aksesuar bulunamadı.
+                  <td colSpan={11} className="p-8 text-center text-zinc-500 italic text-xs">
+                    Analiz sonucunda dekor veya aksesuar bulunamadı. Aşağıdaki düğmeyle elle satır ekleyebilirsin.
                   </td>
                 </tr>
               ) : (
                 project.analysis.aksesuarlar.map((a, idx) => (
-                  <tr key={a.id} className="hover:bg-[#16171a]/40 transition-colors align-top">
-                    <td className="p-3 font-mono text-[10px] text-zinc-500">{idx + 1}</td>
-                    <td className="p-3 font-bold text-white text-xs">{a.ad}</td>
+                  <tr
+                    key={a.id}
+                    className={`transition-colors align-top ${
+                      a.elleDuzenlendi
+                        ? 'bg-sky-950/10 border-l-2 border-l-sky-800 hover:bg-sky-950/20'
+                        : 'hover:bg-[#16171a]/40'
+                    }`}
+                  >
+                    <td className="p-3 font-mono text-[10px] text-zinc-500">
+                      <div className="flex items-center gap-1">
+                        <span>{idx + 1}</span>
+                        {a.elleDuzenlendi && (
+                          <span title="Elle düzenlendi — yeniden çalıştırma bu satırı ezmez" className="text-sky-500">✎</span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="p-2">
+                      <input
+                        type="text"
+                        value={a.ad}
+                        onChange={(e) => handleUpdateAksesuarField(a.id, 'ad', e.target.value)}
+                        placeholder="Öğe adı"
+                        className="w-full bg-[#0d0e10] border border-[#2a2a2a] rounded px-1.5 py-1 text-xs font-bold text-white outline-none focus:border-red-500"
+                      />
+                    </td>
                     <td className="p-2">
                       <select
                         value={a.tur || ''}
@@ -2395,11 +2500,28 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
                         {OGE_TUR_SECENEKLERI.map(t => <option key={t} value={t}>{t}</option>)}
                       </select>
                     </td>
-                    <td className="p-3 font-mono text-[10px] text-zinc-400">
-                      {(a.kullanildigiSahneler || []).join(', ') || '—'}
+                    <td className="p-2">
+                      <input
+                        type="text"
+                        value={(a.kullanildigiSahneler || []).join(', ')}
+                        onChange={(e) => handleUpdateAksesuarField(
+                          a.id,
+                          'kullanildigiSahneler',
+                          e.target.value.split(',').map(s => s.trim()).filter(Boolean)
+                        )}
+                        placeholder="virgülle ayır"
+                        title="Sahneleri virgülle ayır. Geçişler tablosu bu alandan türetilir."
+                        className="w-full bg-[#0d0e10] border border-[#2a2a2a] rounded px-1.5 py-1 text-[10px] font-mono text-zinc-300 outline-none focus:border-red-500"
+                      />
                     </td>
-                    <td className="p-3 text-zinc-400 italic text-[11px] leading-relaxed">
-                      {a.kaynakAlinti || '—'}
+                    <td className="p-2">
+                      <textarea
+                        value={a.kaynakAlinti || ''}
+                        onChange={(e) => handleUpdateAksesuarField(a.id, 'kaynakAlinti', e.target.value)}
+                        rows={2}
+                        placeholder="metinden alıntı / bağlam notu"
+                        className="w-full bg-[#0d0e10] border border-[#2a2a2a] rounded px-1.5 py-1 text-[11px] italic text-zinc-400 outline-none focus:border-red-500 resize-y"
+                      />
                     </td>
                     <td className="p-2">
                       <select
@@ -2457,16 +2579,35 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
                         <option value="Verildi">Verildi</option>
                       </select>
                     </td>
+                    <td className="p-2">
+                      <button
+                        onClick={() => handleDeleteAksesuarRow(a.id)}
+                        title="Satırı sil"
+                        className="p-1 rounded text-zinc-600 hover:text-red-400 hover:bg-red-950/20 transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
             </tbody>
           </table>
         </div>
-        <p className="text-[10px] text-zinc-600 font-mono pt-1">
-          Tür, Kaynak, Adet, Ölçü ve Tasarım kararı alanlarını analiz tahmin etmez — bunlar senin kararın.
-          Sarı çerçeveli alanlar henüz boş.
-        </p>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1">
+          <p className="text-[10px] text-zinc-600 font-mono leading-relaxed">
+            Tür, Kaynak, Adet, Ölçü ve Tasarım kararı alanlarını analiz tahmin etmez — bunlar senin kararın.
+            Sarı çerçeveli alanlar henüz boş. <span className="text-sky-500">✎</span> işaretli satırlara elle
+            dokunulmuş; yeniden analiz bu satırları ezmez.
+          </p>
+          <button
+            onClick={handleAddAksesuarRow}
+            className="shrink-0 px-3 py-1.5 bg-[#16171a] border border-[#2a2a2a] hover:border-zinc-600 text-zinc-300 rounded text-[10px] font-bold uppercase font-mono tracking-wider flex items-center gap-1.5 transition-colors"
+          >
+            <Plus className="w-3 h-3" />
+            Satır Ekle
+          </button>
+        </div>
       </div>
 
       {/* 5. SAHNE GEÇİŞ SIRASI (Chronological Flow) CARD MATCHING MOCKUP */}
@@ -2561,6 +2702,56 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
       </div>
 
       </>
+      )}
+
+      {/* YENİDEN ANALİZ UYARISI */}
+      {rerunWarning && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#131517] border border-[#2a2a2a] rounded-lg shadow-2xl max-w-lg w-full p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <h3 className="text-sm font-bold text-white font-mono uppercase tracking-wider">
+                  Elle Düzenlediğin Satırlar Var
+                </h3>
+                <p className="text-xs text-zinc-400 mt-2 leading-relaxed">
+                  Öğe tablosunda elle dokunduğun <strong className="text-white">{rerunWarning.elleSayisi} satır</strong> var.
+                  Yeniden analiz, metni baştan okuyup listeyi yeniden kurar.
+                </p>
+                <p className="text-xs text-zinc-400 mt-2 leading-relaxed">
+                  Koruyarak devam edersen Tür, Kaynak, Adet, Ölçü, Anlam taşıyor ve Tasarım kararı
+                  alanlarındaki girdilerin aynı kalır; analizin bu kez bulamadığı ama senin doldurduğun
+                  satırlar da silinmez.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-[#2a2a2a]">
+              <button
+                onClick={() => { setRerunWarning(null); handleAnalyzeAll(true); }}
+                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded text-[11px] font-bold uppercase tracking-wider font-mono transition-colors"
+              >
+                Düzenlediklerimi Koru
+              </button>
+              <button
+                onClick={() => {
+                  if (!confirm(`${rerunWarning.elleSayisi} satırdaki elle girdiğin tüm alanlar silinecek. Emin misin?`)) return;
+                  setRerunWarning(null);
+                  handleAnalyzeAll(false);
+                }}
+                className="flex-1 px-4 py-2 bg-[#16171a] border border-[#2a2a2a] hover:border-amber-800 hover:text-amber-400 text-zinc-400 rounded text-[11px] font-bold uppercase tracking-wider font-mono transition-colors"
+              >
+                Sıfırdan Kur
+              </button>
+              <button
+                onClick={() => setRerunWarning(null)}
+                className="px-4 py-2 text-zinc-500 hover:text-zinc-300 rounded text-[11px] font-bold uppercase tracking-wider font-mono transition-colors"
+              >
+                Vazgeç
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
     </div>
