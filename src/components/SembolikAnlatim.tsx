@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Project } from '../types';
-import { sanitizeProjectForApi } from '../utils/apiPayload';
 import { 
   Compass, 
   Sparkles, 
@@ -39,7 +38,7 @@ export function SembolikAnlatimView({ project, onUpdateProject }: SembolikAnlati
       const response = await fetch('/api/generate-symbolic-analysis', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ project: sanitizeProjectForApi(project), instruction })
+        body: JSON.stringify({ project: project, instruction })
       });
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
@@ -111,7 +110,7 @@ export function SembolikAnlatimView({ project, onUpdateProject }: SembolikAnlati
           <Layers className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
           <div>
             <span className="font-bold uppercase tracking-wider block mb-1 text-[10px] font-mono text-emerald-300">Otomatik Bağlantı Aktif:</span>
-            Bu sekmedeki sembol ve alt metin bulguları, <strong>Sunum Dosyası</strong> sekmesindeki sanatsal slogan ve açıklama ("Sözsel Dil") kurgulanırken Gemini'a otomatik olarak bağlam (context) olarak aktarılır!
+            Bu sekmedeki sembol ve alt metin bulguları, <strong>Üretim Planı</strong> hazırlanırken dekor ve aksesuarların anlamsal önceliklerini belirlemek için bağlam (context) olarak aktarılır.
           </div>
         </div>
 

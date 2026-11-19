@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { Project } from '../types';
-import { sanitizeProjectForApi } from '../utils/apiPayload';
 import { 
   TrendingUp, 
   Sparkles, 
@@ -136,7 +135,7 @@ export function HareketDuyguView({ project, onUpdateProject, addLog }: HareketDu
       const response = await fetch('/api/generate-movement-emotion', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ project: sanitizeProjectForApi(project), instruction })
+        body: JSON.stringify({ project: project, instruction })
       });
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));

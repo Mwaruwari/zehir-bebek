@@ -70,13 +70,6 @@ export interface Project {
   scenes?: Scene[];
   sceneBoundaries?: SceneBoundary[];
   analysis?: SceneAnalysis;
-  presentationImages?: PresentationImage[];
-  verbalLanguage?: VerbalLanguage;
-  verbalLanguageHistory?: VerbalLanguage[];
-  sozselDilVersiyonlari?: VerbalLanguage[];
-  technicalDrawings?: TechnicalDrawing[];
-  placedProps?: PlacedProp[];
-  styleLibrary?: StyleReference[];
   productionPlanSummary?: {
     materialList: { item: string; qty: string; notes: string }[];
     jobSequence: string[];
@@ -107,51 +100,6 @@ export interface Project {
   }[];
   symbolicMetaphors?: string[];
   symbolicInstruction?: string;
-}
-
-export interface PresentationImage {
-  id: string;
-  name: string;
-  data: string;
-  sceneId: string; // empty or scene ID
-  order: number;
-  title: string;
-  description: string;
-}
-
-export interface VerbalLanguage {
-  headline: string;
-  narrative: string;
-  createdAt?: string;
-}
-
-export interface TechnicalDrawing {
-  id: string;
-  title: string;
-  uploadedAt: string;
-  image: string;
-  style: 'reference' | 'simple' | 'scaled' | 'labeled';
-  materialNotes: string[];
-  scale: string;
-  approved: boolean;
-  notes?: string;
-}
-
-export interface PlacedProp {
-  id: string;
-  propId: string;
-  name: string;
-  x: number; // percent
-  y: number; // percent
-  widthPercent: number;
-  lengthPercent: number;
-}
-
-export interface StyleReference {
-  id: string;
-  name: string;
-  image: string;
-  uploadedAt: string;
 }
 
 export interface ServerLog {

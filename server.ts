@@ -611,20 +611,13 @@ function serverSafeMergeProject(existing: any, incoming: any): any {
 
   mergeArray('scenes');
   mergeArray('sceneBoundaries');
-  mergeArray('presentationImages');
-  mergeArray('technicalDrawings');
-  mergeArray('placedProps');
-  mergeArray('styleLibrary');
   mergeArray('movementEmotionData');
   mergeArray('narrativeBeats');
   mergeArray('symbolicAnalysis');
   mergeArray('symbolicMetaphors');
-  mergeArray('sozselDilVersiyonlari');
-  mergeArray('verbalLanguageHistory');
 
   mergeObject('productionPlanSummary');
   mergeObject('productionPlanDetailed');
-  mergeObject('verbalLanguage');
 
   if (existing.scriptText && (!incoming.scriptText || incoming.scriptText.trim() === '')) {
     merged.scriptText = existing.scriptText;
@@ -2011,285 +2004,6 @@ function diffLists(oldList: any[], newList: any[], keyField: string): any[] {
   return result;
 }
 
-// 7. Presentation & Technical Drawing Generation APIs
-app.post('/api/generate-verbal', async (req, res) => {
-  try {
-    const { project, instruction } = req.body;
-    const ai = getGeminiClient();
-    
-    const analysis = project?.analysis;
-    const symbolicCtx = project?.symbolicAnalysis 
-      ? `\nSembolik/Alt Metin Analizi: ${JSON.stringify(project.symbolicAnalysis)}
-Tekrar Eden Benzetmeler: ${JSON.stringify(project.symbolicMetaphors || [])}`
-      : '';
-    const projectSummary = `Proje: ${project?.name || ''}, Ölçüler: ${project?.width || 0}mx${project?.length || 0}mx${project?.height || 0}m.${symbolicCtx}
-Mekanlar: ${JSON.stringify(analysis?.mekanlar || [])}
-Aksesuarlar/Dekor: ${JSON.stringify(analysis?.aksesuarlar || [])}`;
-
-    addLog('info', `Generating Verbal Language with Gemini. Instruction: "${instruction || 'None'}"`);
-    
-    const systemInstruction = `You are a professional theater copywriter and director, expert in scenic design and dramaturgy.
-Your job is to write a striking conceptual headline (sentence or phrase) and a 2-3 sentence deep artistic narrative explaining the stage design philosophy, dramatic conflict, and atmosphere.
-Always respond in Turkish.
-If a director correction instruction is provided, strictly follow its requested tones and preferences (e.g., "darker tone", "more minimalist") to generate the updated version.
-Your entire output must be a clean, valid JSON matching the specified schema. Do not enclose it in markdown code blocks, do not include any preface or explanation. Only return raw JSON.`;
-
-    const promptText = `PROJE DETAYLARI:
-${projectSummary}
-
-YÖNETMEN DÜZELTME TALİMATI:
-${instruction || 'Düzeltme talimatı yok. Genel tasarım felsefesine uygun en vurucu başlığı ve anlatımı üretin.'}`;
-
-    const response = await generateContentWithRetry({
-      model: 'gemini-3.5-flash',
-      contents: promptText,
-      config: {
-        systemInstruction: systemInstruction,
-        temperature: 0.7,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            headline: { type: Type.STRING },
-            narrative: { type: Type.STRING }
-          },
-          required: ["headline", "narrative"]
-        }
-      }
-    });
-
-    const parsed = robustJsonParse<any>(response.text || '{}');
-    res.json(parsed);
-  } catch (error: any) {
-    console.error('Verbal generation error:', error);
-    addLog('error', `Verbal generation error: ${error.message}\nStack trace: ${error.stack}`);
-    res.status(500).json({ error: `Sözsel dil üretilirken hata oluştu: ${error.message}` });
-  }
-});
-
-app.post('/api/generate-rationale', async (req, res) => {
-  try {
-    const { imageTitle, sceneId, itemDescription, project } = req.body;
-    const ai = getGeminiClient();
-
-    addLog('info', `Generating Rationale with Gemini for image: "${imageTitle}"`);
-    
-    const systemInstruction = `You are a professional theater set designer and art director.
-Write a 2-sentence professional rationale/artistic justification explaining how this decor image contributes to the play's dramaturgical structure, atmosphere, and stage setup.
-Your sentences must use theatrical art and scenic design terms, be highly convincing, and persuade the director's team.
-Always respond in Turkish.
-Your output must be a clean, valid JSON matching the specified schema. Do not include markdown blocks or prefaces.`;
-
-    const promptText = `PROJE: ${project?.name || ''}
-GÖRSEL BAŞLIĞI: ${imageTitle}
-MEKAN / SAHNE BİLGİSİ: ${sceneId || 'Genel Sahneleme'}
-ÖĞE DETAYLARI: ${itemDescription || ''}`;
-
-    const response = await generateContentWithRetry({
-      model: 'gemini-3.5-flash',
-      contents: promptText,
-      config: {
-        systemInstruction: systemInstruction,
-        temperature: 0.7,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            description: { type: Type.STRING }
-          },
-          required: ["description"]
-        }
-      }
-    });
-
-    const parsed = robustJsonParse<any>(response.text || '{}');
-    res.json(parsed);
-  } catch (error: any) {
-    console.error('Rationale generation error:', error);
-    addLog('error', `Rationale generation error: ${error.message}\nStack trace: ${error.stack}`);
-    res.status(500).json({ error: `Açıklama üretilirken hata oluştu: ${error.message}` });
-  }
-});
-
-app.post('/api/analyze-image', async (req, res) => {
-  try {
-    const { image, imageName, project } = req.body;
-    
-    if (!image) {
-      throw new Error('Analiz edilecek görsel verisi bulunamadı.');
-    }
-
-    addLog('info', `Görsel analiz çağrısı başlatıldı: Endpoint = "/api/analyze-image", Model = "gemini-3.1-flash-lite"`);
-
-    let rawBase64 = image;
-    let mimeType = 'image/png';
-
-    if (image.includes('base64,')) {
-      rawBase64 = image.split('base64,')[1];
-      mimeType = image.split(';')[0].split(':')[1] || 'image/png';
-    }
-
-    const systemInstruction = `You are an expert theater set designer, stage director, and art historian.
-Analyze this uploaded stage/decor reference image and suggest:
-1. A descriptive artistic title (e.g., "Neo-noir Sokak Lambası", "Endüstriyel Paslı Metal Kiriş") in Turkish.
-2. A professional artistic rationale (2 sentences) in Turkish explaining how this scenery/prop contributes to the play's dramaturgical structure, atmosphere, and mood. Use rich stage design terminology.
-3. If possible, associate this image with one of the scenes/boundaries or locations of the play, or default to general staging.
-
-Always respond in Turkish. Your output must be a clean, valid JSON matching the specified schema. Do not include markdown blocks or prefaces.`;
-
-    const sceneOptions = Array.from(new Set([
-      ...(project?.scenes || []).map((s: any) => s.name),
-      ...(project?.sceneBoundaries || []).map((b: any) => b.name),
-      ...(project?.analysis?.mekanlar || []).map((m: any) => m.ad)
-    ]));
-
-    const promptText = `PROJE ADI: ${project?.name || ''}
-DOSYA ADI: ${imageName || ''}
-MEVCUT SAHNE SEÇENEKLERİ: ${sceneOptions.join(', ')}`;
-
-    const imagePart = {
-      inlineData: {
-        mimeType: mimeType,
-        data: rawBase64
-      }
-    };
-
-    const textPart = {
-      text: promptText
-    };
-
-    const response = await generateContentWithRetry({
-      model: 'gemini-3.1-flash-lite',
-      contents: { parts: [imagePart, textPart] },
-      config: {
-        systemInstruction: systemInstruction,
-        temperature: 0.7,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            description: { type: Type.STRING },
-            sceneId: { type: Type.STRING }
-          },
-          required: ["title", "description", "sceneId"]
-        }
-      }
-    });
-
-    const parsed = robustJsonParse<any>(response.text || '{}');
-    addLog('info', `Görsel analiz çağrısı başarıyla tamamlandı: "${imageName}" için başlık ve gerekçe üretildi.`);
-    res.json(parsed);
-  } catch (error: any) {
-    console.error('Görsel analiz hatası:', error);
-    addLog('error', `Görsel analiz hatası: ${error.message}\nStack trace: ${error.stack}`);
-    res.status(500).json({ error: `Görsel analiz edilirken hata oluştu: ${error.message}` });
-  }
-});
-
-app.post('/api/enhance-technical', async (req, res) => {
-  try {
-    const { style, project, drawingTitle, image } = req.body;
-
-    const width = project?.width || 10;
-    const length = project?.length || 8;
-    const height = project?.height || 4;
-
-    let enhancedImageBase64 = image;
-
-    if (image && image.includes('base64,')) {
-      try {
-        const rawBase64 = image.split('base64,')[1];
-        const mimeType = image.split(';')[0].split(':')[1] || 'image/png';
-
-        addLog('info', `Attempting image enhancement via gemini-3.1-flash-lite. Style: ${style}`);
-
-        const promptText = `This is a hand-drawn theatrical set sketch. Redraw and refine this sketch into a highly professional, sharp technical set design drawing.
-Style requirement: ${style === 'simple' ? 'clean monochrome contour line-art CAD mockup' : style === 'scaled' ? 'blue grid blueprint schematic section' : style === 'labeled' ? 'labeled CAD blueprint layout' : 'style reference matched design'}.
-The stage dimensions are: Width: ${width}m, Length: ${length}m, Height: ${height}m.
-Crucial directive: Automatically overlay precise metric dimension labels (e.g., "${width}m", "${length}m", "${height}m") onto the drawing boundaries as metric notation. Make all lines straight, crisp and precise.`;
-
-        const imagePart = {
-          inlineData: {
-            mimeType: mimeType,
-            data: rawBase64
-          }
-        };
-
-        const textPart = {
-          text: promptText
-        };
-
-        const imageResponse = await generateContentWithRetry({
-          model: 'gemini-3.1-flash-lite',
-          contents: { parts: [imagePart, textPart] }
-        });
-
-        if (imageResponse?.candidates?.[0]?.content?.parts) {
-          for (const part of imageResponse.candidates[0].content.parts) {
-            if (part.inlineData) {
-              enhancedImageBase64 = `data:${part.inlineData.mimeType || 'image/png'};base64,${part.inlineData.data}`;
-              addLog('info', `Successfully enhanced drawing image with Gemini.`);
-              break;
-            }
-          }
-        }
-      } catch (imageErr: any) {
-        addLog('error', `Gemini image edit failed: ${imageErr.message}. Falling back to original image with enhanced styling.`);
-      }
-    }
-
-    addLog('info', `Enhancing technical notes with Gemini for style: "${style}"`);
-    const systemInstruction = `You are a professional theatrical stage draftsman and set manufacturing chef.
-Your job is to generate highly realistic, professional 4-5 bulleted material and construction notes for manufacturing, based on the overall play atmosphere and physical stage dimensions (width, length, height).
-Focus areas should shift based on the selected "style" parameter:
-- "reference": Material and manufacturing notes tailored to match global style references.
-- "simple": Clean line draft; clean assembly, demountable structure, and basic construction notes.
-- "scaled": Scaled plan-section; precise dimensions, elevation heights, and material labels.
-- "labeled": Labeled-notation; detailed manufacturing materials, coating types, and fire-rating details.
-Always respond in Turkish.
-Your output must be a clean, valid JSON matching the specified schema. Do not enclose in markdown code blocks, do not include prefaces or explanations.`;
-
-    const promptText = `PROJE: ${project?.name || ''}
-SAHNE ÖLÇÜLERİ: En: ${width}m, Boy: ${length}m, Yükseklik: ${height}m
-ÇİZİM BAŞLIĞI: ${drawingTitle || 'Tasarım Taslağı'}
-STİL SEÇENEĞİ: ${style}`;
-
-    const textResponse = await generateContentWithRetry({
-      model: 'gemini-3.5-flash',
-      contents: promptText,
-      config: {
-        systemInstruction: systemInstruction,
-        temperature: 0.1,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            materialNotes: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING }
-            },
-            scale: { type: Type.STRING }
-          },
-          required: ["title", "materialNotes", "scale"]
-        }
-      }
-    });
-
-    const parsedText = robustJsonParse<any>(textResponse.text || '{}');
-    res.json({
-      title: parsedText.title || drawingTitle || 'Teknik Pafta',
-      materialNotes: parsedText.materialNotes || [],
-      scale: parsedText.scale || 'Şematik',
-      image: enhancedImageBase64
-    });
-  } catch (error: any) {
-    console.error('Technical enhancement error:', error);
-    addLog('error', `Technical enhancement error: ${error.message}\nStack trace: ${error.stack}`);
-    res.status(500).json({ error: `Teknik pafta detaylandırılırken hata oluştu: ${error.message}` });
-  }
-});
 
 // 8. New Gemini-Powered Endpoints
 
@@ -2297,21 +2011,15 @@ STİL SEÇENEĞİ: ${style}`;
 app.post('/api/generate-production-plan', async (req, res) => {
   try {
     const { project } = req.body;
-    const ai = getGeminiClient();
-    
+
     addLog('info', `Generating production plan via Gemini for project: ${project.name}`);
 
     const propsList = project.analysis?.aksesuarlar || [];
-    const approvedDrawings = project.technicalDrawings?.filter((d: any) => d.approved) || [];
-    
+
     const propsSummary = propsList.map((p: any) => `* AD: ${p.ad}, KATEGORİ: ${p.kategori}, DURUM: ${p.status || 'Belirlenmedi'}, SAHNELER: ${(p.kullanildigiSahneler || []).join(', ')}`).join('\n');
-    const drawingsSummary = approvedDrawings.map((d: any) => `* PAFTA: ${d.title}, ÖLÇEK: ${d.scale}, MALZEME NOTLARI: ${(d.materialNotes || []).join('; ')}`).join('\n');
 
     const promptText = `Sen profesyonel bir tiyatro dekor ve sahne imalat şefisin.
-Sana verilen oyun analizindeki aksesuarlar ve teknik çizim verilerini kullanarak bir imalat ve üretim planı oluşturacaksın.
-
-ONAYLANMIŞ TEKNİK ÇİZİMLER (PAFTALAR):
-${drawingsSummary || 'Onaylanmış teknik çizim bulunmuyor. Sahne genel ölçülerine göre genel tasarım yapın.'}
+Sana verilen oyun analizindeki aksesuar ve dekor listesini kullanarak bir imalat ve üretim planı oluşturacaksın.
 
 SAHNE DEKOR VE AKSESUAR LİSTESİ:
 ${propsSummary || 'Henüz eklenmiş aksesuar yok.'}
