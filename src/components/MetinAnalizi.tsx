@@ -112,7 +112,24 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
   const [activePerdeTab, setActivePerdeTab] = useState<'Perde 1' | 'Perde 2'>('Perde 1');
   const [expandedScenes, setExpandedScenes] = useState<Record<string, boolean>>({});
   const [showExportDropdown, setShowExportDropdown] = useState(false);
-  const [showScriptManagement, setShowScriptManagement] = useState(!project.scriptText);
+  /**
+   * Analiz tamamlanmadıysa panel kapalı başlamamalı: düzyazı metinlerde
+   * "bölünmeyi onayla" adımı panelin içinde duruyor ve kapalıyken
+   * görünmediği için kullanıcı aşamayı atlayabiliyor.
+   */
+  const isAnalysisPending =
+    !project.scriptText ||
+    !project.scenes || project.scenes.length === 0 ||
+    !project.analysis;
+
+  const [showScriptManagement, setShowScriptManagement] = useState(isAnalysisPending);
+
+  // Başka bir projeye geçildiğinde paneli o projenin durumuna göre yeniden ayarla;
+  // bileşen yeniden kurulmadığı için ilk değer tek başına yetmiyor.
+  useEffect(() => {
+    if (isAnalysisPending) setShowScriptManagement(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project.id]);
   const [aksesuarCorrections, setAksesuarCorrections] = useState<Record<string, string>>({});
   const [correctingSceneId, setCorrectingSceneId] = useState<string | null>(null);
   const [showDebugRaw, setShowDebugRaw] = useState(false);
@@ -166,6 +183,8 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
   const [rerunWarning, setRerunWarning] = useState<{ elleSayisi: number } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  /** "Analizi Başlat" uyarısının kaydıracağı hedef: bekleyen onay düğmesi. */
+  const pendingStepRef = useRef<HTMLDivElement>(null);
 
   // Initialize boundaries when scriptText is loaded
   useEffect(() => {
@@ -1446,6 +1465,34 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
       {!fileLoading && (
         <>
       
+      {/* BEKLEYEN ADIM UYARISI — atlanması kolay olduğu için en üstte duruyor */}
+      {isAnalysisPending && project.scriptText && (
+        <div className="bg-amber-950/20 border border-amber-800/50 rounded-lg p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+          <div className="flex-1">
+            <p className="text-xs font-bold text-amber-400 font-mono uppercase tracking-wider">
+              Bu metin henüz analiz edilmedi
+            </p>
+            <p className="text-[11px] text-amber-200/70 mt-1 leading-relaxed">
+              {project.isProse && (project.narrativeBeats || []).length > 0
+                ? `Metin ${(project.narrativeBeats || []).length} anlatı birimine bölündü ama henüz onaylanmadı. Onaylayana kadar öğe listesi boş kalır ve Duygu Grafiği çalışmaz.`
+                : 'Öğe listesi ve Duygu Grafiği, metin analizi çalıştırılana kadar boş kalır.'}
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              setShowScriptManagement(true);
+              setTimeout(() => {
+                pendingStepRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              }, 150);
+            }}
+            className="shrink-0 px-4 py-2 bg-amber-600 hover:bg-amber-500 text-black rounded text-[11px] font-bold uppercase tracking-wider font-mono transition-colors"
+          >
+            Analizi Başlat
+          </button>
+        </div>
+      )}
+
       {/* COLLAPSIBLE SCRIPT METİN YÖNETİMİ & YAPAY ZEKA ANALİZİ */}
       <div className="bg-[#131517] border border-[#1f2125] rounded-lg p-4 shadow-sm">
         <button 
@@ -1683,7 +1730,7 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
                 </div>
 
                 {/* Bottom actions */}
-                <div className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-[#1f2125]">
+                <div ref={pendingStepRef} className="flex flex-col sm:flex-row gap-3 pt-4 border-t border-[#1f2125]">
                   <button
                     onClick={handleClearScript}
                     className="px-4 py-2 bg-[#25272c] hover:bg-zinc-800 border border-[#1f2125] text-zinc-400 rounded font-bold uppercase text-[11px] transition-colors"
