@@ -1,6 +1,10 @@
 import { useState, useRef, useEffect, DragEvent } from 'react';
 import * as XLSX from 'xlsx';
-import { Project, Scene, SceneBoundary, SceneAnalysis, Mekan, Gecis, Olay, Aksesuar } from '../types';
+import {
+  Project, Scene, SceneBoundary, SceneAnalysis, Mekan, Gecis, Olay, Aksesuar,
+  OgeTur, OgeKaynak, AnlamTasiyor, TasarimKarari,
+  OGE_TUR_SECENEKLERI, OGE_KAYNAK_SECENEKLERI
+} from '../types';
 import { detectSceneHeaderLines, countSceneHeaderLines } from '../utils/sceneHeaders';
 import { 
   UploadCloud, 
@@ -938,15 +942,21 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
     addLog('info', `Düzeltmeler iptal edildi.`);
   };
 
-  const handleUpdateAksesuarStatus = (id: string, status: 'Satın Alınacak' | 'Üretilecek' | '') => {
+  /**
+   * Öğe tablosundaki tek bir alanı günceller.
+   * Tür, Kaynak, Adet, Ölçü ve Tasarım kararı alanlarını analiz doldurmaz;
+   * yalnızca kullanıcı buradan doldurur.
+   */
+  const handleUpdateAksesuarField = <K extends keyof Aksesuar>(
+    id: string,
+    field: K,
+    value: Aksesuar[K]
+  ) => {
     if (!project.analysis) return;
-    const updatedAksesuarlar = (project.analysis.aksesuarlar || []).map(a => {
-      if (a.id === id) {
-        return { ...a, status };
-      }
-      return a;
-    });
-    
+    const updatedAksesuarlar = (project.analysis.aksesuarlar || []).map(a =>
+      a.id === id ? { ...a, [field]: value } : a
+    );
+
     onUpdateProject({
       ...project,
       analysis: {
@@ -954,7 +964,7 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
         aksesuarlar: updatedAksesuarlar
       }
     });
-    addLog('info', `Aksesuar statüsü "${status || 'Boş'}" olarak güncellendi.`);
+    addLog('info', `Öğe alanı güncellendi: ${String(field)} = "${String(value) || 'boş'}"`);
   };
 
   const getPerdeGroup = (sceneName: string, idx: number, total: number): 'Perde 1' | 'Perde 2' => {
@@ -996,31 +1006,31 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
       return;
     }
 
-    const exportData = list.map(item => {
-      const scenesUsed = item.kullanildigiSahneler || [];
-      const perdeInfo = scenesUsed.map(sName => {
-        const sIdx = (project.scenes || []).findIndex(sc => sc.name.toLowerCase() === sName.toLowerCase());
-        const pNum = getPerdeGroup(sName, sIdx === -1 ? 0 : sIdx, project.scenes?.length || 1);
-        return `${pNum === 'Perde 2' ? '2. Perde' : '1. Perde'} - ${sName}`;
-      }).join(', ');
-
-      return {
-        'Öğe/Aksesuar Adı': item.ad,
-        'Durum': item.status || 'Belirsiz',
-        'Kullanıldığı Sahneler': scenesUsed.join(', '),
-        'Perde / Sahne Bilgisi': perdeInfo,
-        'Kullanım Notu / Gerekçe': item.aciklama || ''
-      };
-    });
+    // Sütun adları ve sırası Google Tablolar kalıbıyla birebir aynı olmalı.
+    const exportData = list.map((item, idx) => ({
+      'No': String(idx + 1),
+      'Öğe': item.ad,
+      'Tür': item.tur || '',
+      'Sahneler': (item.kullanildigiSahneler || []).join(', '),
+      'Metinden alıntı': item.kaynakAlinti || '',
+      'Kaynak': item.kaynak || '',
+      'Adet': item.adet || '',
+      'Ölçü (cm)': item.olcu || '',
+      'Anlam taşıyor': item.anlamTasiyor || '',
+      'Tasarım kararı': item.tasarimKarari || ''
+    }));
 
     if (format === 'xlsx') {
       const worksheet = XLSX.utils.json_to_sheet(exportData);
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, "Dekor ve Aksesuar Listesi");
-      XLSX.writeFile(workbook, `${project.name}_Dekor_Aksesuar_Listesi.xlsx`);
-      addLog('info', `Aksesuar listesi Excel (.xlsx) olarak başarıyla indirildi.`);
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Öğeler");
+      XLSX.writeFile(workbook, `${project.name}_Ogeler.xlsx`);
+      addLog('info', `Öğe listesi Excel (.xlsx) olarak başarıyla indirildi.`);
     } else {
-      const headers = ['Öğe/Aksesuar Adı', 'Durum', 'Kullanıldığı Sahneler', 'Perde / Sahne Bilgisi', 'Kullanım Notu / Gerekçe'];
+      const headers = [
+        'No', 'Öğe', 'Tür', 'Sahneler', 'Metinden alıntı',
+        'Kaynak', 'Adet', 'Ölçü (cm)', 'Anlam taşıyor', 'Tasarım kararı'
+      ];
       const csvContent = [
         headers.join(','),
         ...exportData.map(row => headers.map(h => {
@@ -1036,11 +1046,11 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.setAttribute("href", url);
-      link.setAttribute("download", `${project.name}_Dekor_Aksesuar_Listesi.csv`);
+      link.setAttribute("download", `${project.name}_Ogeler.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      addLog('info', `Aksesuar listesi CSV olarak başarıyla indirildi.`);
+      addLog('info', `Öğe listesi CSV olarak başarıyla indirildi.`);
     }
   };
 
@@ -1974,10 +1984,10 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
                                   <table className="w-full text-left text-xs border-collapse">
                                     <thead className="bg-[#16171a] font-mono text-[9px] uppercase tracking-wider text-zinc-400 border-b border-[#1f2125]">
                                       <tr>
-                                        <th className="p-2 border-b border-[#1f2125]">Öğe Adı</th>
-                                        <th className="p-2 border-b border-[#1f2125]">Kategori</th>
-                                        <th className="p-2 border-b border-[#1f2125]">Açıklama / Kullanım Notu</th>
-                                        <th className="p-2 border-b border-[#1f2125] w-[260px]">Durum / Kaynak Kararı</th>
+                                        <th className="p-2 border-b border-[#1f2125]">Öğe</th>
+                                        <th className="p-2 border-b border-[#1f2125] w-[110px]">Tür</th>
+                                        <th className="p-2 border-b border-[#1f2125]">Metinden alıntı</th>
+                                        <th className="p-2 border-b border-[#1f2125] w-[110px]">Kaynak</th>
                                       </tr>
                                     </thead>
                                     <tbody className="divide-y divide-[#1f2125]">
@@ -2002,39 +2012,30 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
                                                 {isRemoved && <span className="text-[8px] bg-red-950 text-red-400 px-1.5 py-0.5 rounded uppercase font-bold font-mono">Çıkarıldı</span>}
                                               </div>
                                             </td>
-                                            <td className="p-2 font-mono text-[10px]">
-                                              <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase ${
-                                                item.kategori === 'dekor' 
-                                                  ? 'bg-amber-950/30 text-amber-500 border border-amber-900/40' 
-                                                  : 'bg-teal-950/30 text-teal-500 border border-teal-900/40'
-                                              }`}>
-                                                {item.kategori}
-                                              </span>
-                                            </td>
-                                            <td className={`p-2 text-xs ${isRemoved ? 'line-through text-red-500/60' : 'text-zinc-400'}`}>{item.aciklama}</td>
                                             <td className="p-2">
-                                              <div className="flex gap-1.5">
-                                                <button
-                                                  onClick={() => handleUpdateAksesuarStatus(item.id, item.status === 'Satın Alınacak' ? '' : 'Satın Alınacak')}
-                                                  className={`px-2 py-1 text-[9px] font-bold uppercase rounded border transition-colors ${
-                                                    item.status === 'Satın Alınacak'
-                                                      ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800'
-                                                      : 'bg-[#16171a] text-zinc-500 border-zinc-800 hover:text-zinc-300 hover:border-zinc-700'
-                                                  }`}
-                                                >
-                                                  Satın Alınacak
-                                                </button>
-                                                <button
-                                                  onClick={() => handleUpdateAksesuarStatus(item.id, item.status === 'Üretilecek' ? '' : 'Üretilecek')}
-                                                  className={`px-2 py-1 text-[9px] font-bold uppercase rounded border transition-colors ${
-                                                    item.status === 'Üretilecek'
-                                                      ? 'bg-blue-950/40 text-blue-400 border-blue-800'
-                                                      : 'bg-[#16171a] text-zinc-500 border-zinc-800 hover:text-zinc-300 hover:border-zinc-700'
-                                                  }`}
-                                                >
-                                                  Atölyede Üretilecek
-                                                </button>
-                                              </div>
+                                              <select
+                                                value={item.tur || ''}
+                                                onChange={(e) => handleUpdateAksesuarField(item.id, 'tur', e.target.value as OgeTur)}
+                                                className={`w-full bg-[#0d0e10] border rounded px-1 py-0.5 text-[9px] font-mono outline-none focus:border-red-500 ${
+                                                  item.tur ? 'border-[#2a2a2a] text-zinc-200' : 'border-amber-900/40 text-zinc-500'
+                                                }`}
+                                              >
+                                                <option value="">— boş —</option>
+                                                {OGE_TUR_SECENEKLERI.map(t => <option key={t} value={t}>{t}</option>)}
+                                              </select>
+                                            </td>
+                                            <td className={`p-2 text-[11px] italic ${isRemoved ? 'line-through text-red-500/60' : 'text-zinc-400'}`}>{item.kaynakAlinti || '—'}</td>
+                                            <td className="p-2">
+                                              <select
+                                                value={item.kaynak || ''}
+                                                onChange={(e) => handleUpdateAksesuarField(item.id, 'kaynak', e.target.value as OgeKaynak)}
+                                                className={`w-full bg-[#0d0e10] border rounded px-1 py-0.5 text-[9px] font-mono outline-none focus:border-red-500 ${
+                                                  item.kaynak ? 'border-[#2a2a2a] text-zinc-200' : 'border-amber-900/40 text-zinc-500'
+                                                }`}
+                                              >
+                                                <option value="">— boş —</option>
+                                                {OGE_KAYNAK_SECENEKLERI.map(k => <option key={k} value={k}>{k}</option>)}
+                                              </select>
                                             </td>
                                           </tr>
                                         );
@@ -2173,7 +2174,7 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
                     </span>
                   </div>
                   <p className="text-[11px] text-zinc-400 font-mono mt-1 leading-normal max-h-12 overflow-hidden truncate">
-                    {item.aciklama || 'Kullanım açıklaması bulunmuyor.'}
+                    {item.kaynakAlinti || 'Metinden alıntı bulunmuyor.'}
                   </p>
                 </div>
                 <div className="text-[9px] font-mono text-zinc-500 mt-2 flex items-center gap-1 border-t border-[#1f2125]/60 pt-1.5">
@@ -2354,35 +2355,107 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
           </div>
         </div>
 
-        <div className="overflow-x-auto max-h-96">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
+        <div className="overflow-x-auto max-h-[32rem]">
+          <table className="w-full text-left border-collapse text-xs min-w-[1100px]">
+            <thead className="sticky top-0 z-10">
               <tr className="bg-[#16171a] font-mono text-[9px] uppercase tracking-wider text-zinc-400 border-b border-[#1f2125]">
-                <th className="p-3 w-1/4">AKSESUAR ADI</th>
-                <th className="p-3 w-1/6">KATEGORİ</th>
-                <th className="p-3 w-1/3">AÇIKLAMA / NOTLAR</th>
-                <th className="p-3 w-1/4">KULLANILDIĞI SAHNELER</th>
+                <th className="p-3 w-10">No</th>
+                <th className="p-3 min-w-[160px]">Öğe</th>
+                <th className="p-3 min-w-[130px]">Tür</th>
+                <th className="p-3 min-w-[140px]">Sahneler</th>
+                <th className="p-3 min-w-[220px]">Metinden alıntı</th>
+                <th className="p-3 min-w-[130px]">Kaynak</th>
+                <th className="p-3 w-20">Adet</th>
+                <th className="p-3 w-28">Ölçü (cm)</th>
+                <th className="p-3 w-28">Anlam taşıyor</th>
+                <th className="p-3 min-w-[120px]">Tasarım kararı</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#1f2125]">
               {(!project.analysis?.aksesuarlar || project.analysis.aksesuarlar.length === 0) ? (
                 <tr>
-                  <td colSpan={4} className="p-8 text-center text-zinc-500 italic text-xs">
+                  <td colSpan={10} className="p-8 text-center text-zinc-500 italic text-xs">
                     Analiz sonucunda dekor veya aksesuar bulunamadı.
                   </td>
                 </tr>
               ) : (
-                project.analysis.aksesuarlar.map((a) => (
-                  <tr key={a.id} className="hover:bg-[#16171a]/40 transition-colors">
+                project.analysis.aksesuarlar.map((a, idx) => (
+                  <tr key={a.id} className="hover:bg-[#16171a]/40 transition-colors align-top">
+                    <td className="p-3 font-mono text-[10px] text-zinc-500">{idx + 1}</td>
                     <td className="p-3 font-bold text-white text-xs">{a.ad}</td>
-                    <td className="p-3">
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-mono bg-red-950/20 text-red-400 border border-red-900/30">
-                        {a.kategori}
-                      </span>
+                    <td className="p-2">
+                      <select
+                        value={a.tur || ''}
+                        onChange={(e) => handleUpdateAksesuarField(a.id, 'tur', e.target.value as OgeTur)}
+                        className={`w-full bg-[#0d0e10] border rounded px-1.5 py-1 text-[10px] font-mono outline-none focus:border-red-500 ${
+                          a.tur ? 'border-[#2a2a2a] text-zinc-200' : 'border-amber-900/40 text-zinc-500'
+                        }`}
+                      >
+                        <option value="">— boş —</option>
+                        {OGE_TUR_SECENEKLERI.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
                     </td>
-                    <td className="p-3 text-zinc-300">{a.aciklama || 'Açıklama bulunmuyor.'}</td>
-                    <td className="p-3 font-mono text-[11px] text-zinc-400">
-                      {(a.kullanildigiSahneler || []).join(', ')}
+                    <td className="p-3 font-mono text-[10px] text-zinc-400">
+                      {(a.kullanildigiSahneler || []).join(', ') || '—'}
+                    </td>
+                    <td className="p-3 text-zinc-400 italic text-[11px] leading-relaxed">
+                      {a.kaynakAlinti || '—'}
+                    </td>
+                    <td className="p-2">
+                      <select
+                        value={a.kaynak || ''}
+                        onChange={(e) => handleUpdateAksesuarField(a.id, 'kaynak', e.target.value as OgeKaynak)}
+                        className={`w-full bg-[#0d0e10] border rounded px-1.5 py-1 text-[10px] font-mono outline-none focus:border-red-500 ${
+                          a.kaynak ? 'border-[#2a2a2a] text-zinc-200' : 'border-amber-900/40 text-zinc-500'
+                        }`}
+                      >
+                        <option value="">— boş —</option>
+                        {OGE_KAYNAK_SECENEKLERI.map(k => <option key={k} value={k}>{k}</option>)}
+                      </select>
+                    </td>
+                    <td className="p-2">
+                      <input
+                        type="text"
+                        value={a.adet || ''}
+                        onChange={(e) => handleUpdateAksesuarField(a.id, 'adet', e.target.value)}
+                        placeholder="—"
+                        className="w-full bg-[#0d0e10] border border-[#2a2a2a] rounded px-1.5 py-1 text-[10px] font-mono text-zinc-200 outline-none focus:border-red-500"
+                      />
+                    </td>
+                    <td className="p-2">
+                      <input
+                        type="text"
+                        value={a.olcu || ''}
+                        onChange={(e) => handleUpdateAksesuarField(a.id, 'olcu', e.target.value)}
+                        placeholder="örn: 120x80x75"
+                        className="w-full bg-[#0d0e10] border border-[#2a2a2a] rounded px-1.5 py-1 text-[10px] font-mono text-zinc-200 outline-none focus:border-red-500"
+                      />
+                    </td>
+                    <td className="p-2">
+                      <select
+                        value={a.anlamTasiyor || ''}
+                        onChange={(e) => handleUpdateAksesuarField(a.id, 'anlamTasiyor', e.target.value as AnlamTasiyor)}
+                        className="w-full bg-[#0d0e10] border border-[#2a2a2a] rounded px-1.5 py-1 text-[10px] font-mono text-zinc-200 outline-none focus:border-red-500"
+                      >
+                        <option value="">—</option>
+                        <option value="Evet">Evet</option>
+                        <option value="Hayır">Hayır</option>
+                      </select>
+                    </td>
+                    <td className="p-2">
+                      <select
+                        value={a.tasarimKarari || ''}
+                        onChange={(e) => handleUpdateAksesuarField(a.id, 'tasarimKarari', e.target.value as TasarimKarari)}
+                        className={`w-full bg-[#0d0e10] border rounded px-1.5 py-1 text-[10px] font-mono outline-none focus:border-red-500 ${
+                          a.tasarimKarari === 'Verildi'
+                            ? 'border-emerald-900/50 text-emerald-400'
+                            : 'border-[#2a2a2a] text-zinc-400'
+                        }`}
+                      >
+                        <option value="">—</option>
+                        <option value="Bekliyor">Bekliyor</option>
+                        <option value="Verildi">Verildi</option>
+                      </select>
                     </td>
                   </tr>
                 ))
@@ -2390,6 +2463,10 @@ export default function MetinAnalizi({ project, onUpdateProject, addLog }: Metin
             </tbody>
           </table>
         </div>
+        <p className="text-[10px] text-zinc-600 font-mono pt-1">
+          Tür, Kaynak, Adet, Ölçü ve Tasarım kararı alanlarını analiz tahmin etmez — bunlar senin kararın.
+          Sarı çerçeveli alanlar henüz boş.
+        </p>
       </div>
 
       {/* 5. SAHNE GEÇİŞ SIRASI (Chronological Flow) CARD MATCHING MOCKUP */}

@@ -1058,9 +1058,7 @@ const LocationAnalysisSchema = z.object({
 const AccessoryAnalysisSchema = z.object({
   aksesuarlar: z.array(z.object({
     ad: z.string(),
-    kategori: z.enum(['dekor', 'aksesuar']),
-    kaynakAlinti: z.string(),
-    aciklama: z.string()
+    kaynakAlinti: z.string()
   }))
 });
 
@@ -1085,9 +1083,7 @@ const CompleteAnalysisSchema = z.object({
   })).catch([]),
   aksesuarlar: z.array(z.object({
     ad: z.string().default(''),
-    kategori: z.enum(['dekor', 'aksesuar']).catch('aksesuar'),
     kaynakAlinti: z.string().catch(''),
-    aciklama: z.string().catch(''),
     kullanildigiSahneler: z.array(z.string()).catch([])
   })).catch([])
 });
@@ -1453,9 +1449,7 @@ JSON Schema structure:
   "aksesuarlar": [
     {
       "ad": "string",
-      "kategori": "dekor" | "aksesuar",
       "kaynakAlinti": "string",
-      "aciklama": "string",
       "kullanildigiSahneler": ["string"]
     }
   ]
@@ -1494,12 +1488,19 @@ Lütfen yukarıdaki şablona göre JSON çıktısı üret.`;
     kaynakAlinti: (o.kaynakAlinti && o.kaynakAlinti.trim()) ? o.kaynakAlinti.trim() : (o.hareketPotansiyeli || 'Metin akışından tespit edildi')
   }));
 
+  // Tür, Kaynak, Adet, Ölçü ve Tasarım kararı bilinçli olarak boş bırakılır:
+  // bunlar tasarımcının kararı, analizin tahmini değil.
   const verifiedAksesuarlar = (parsed.aksesuarlar || []).map((a: any) => ({
-    ...a,
     id: Math.random().toString(36).substring(2, 9),
-    status: '',
+    ad: a.ad || '',
+    tur: '',
     kullanildigiSahneler: a.kullanildigiSahneler || [],
-    kaynakAlinti: (a.kaynakAlinti && a.kaynakAlinti.trim()) ? a.kaynakAlinti.trim() : (a.aciklama || 'Metin bağlamından tespit edildi')
+    kaynakAlinti: (a.kaynakAlinti && a.kaynakAlinti.trim()) ? a.kaynakAlinti.trim() : (a.aciklama || 'Metin bağlamından tespit edildi'),
+    kaynak: '',
+    adet: '',
+    olcu: '',
+    anlamTasiyor: '',
+    tasarimKarari: ''
   }));
 
   const mappedGecisler = (parsed.gecisler || []).map((g: any) => ({
@@ -1880,7 +1881,8 @@ Kullanıcı, bu edebi eserin YETKİLİ/RESMİ bir sahne uyarlaması projesi üze
 
 Sana gönderilen metnin kim tarafından yazıldığı, yayımlanıp yayımlanmadığı seninle İLGİLİ DEĞİLDİR ve bu konuda hiçbir çıkarım yapmamalısın. Sadece istenen yapısal veri çıkarma görevini yap. Bu metnin kaynağını, yazarını veya yayın durumunu ASLA sorgulama, tanımaya çalışma, yorumlama.
 
-Ensure each item contains: "ad", "kategori" ("dekor", "aksesuar"), "kaynakAlinti", "aciklama".
+Ensure each item contains: "ad", "kaynakAlinti".
+Do NOT invent or guess the following fields; they are the designer's own decisions and are filled in by hand: "tur" (Tür), "kaynak" (Kaynak), "adet" (Adet), "olcu" (Ölçü), "tasarimKarari" (Tasarım kararı). Preserve their existing values untouched if they are present in the current table data.
 "kaynakAlinti" is NOT required to be a long verbatim copy from the source text. Instead, for each item, provide either a short quote (less than 15 words) OR a brief "context summary / paraphrase" in your own words explaining where or how this item appears in the text (e.g., "3. bölümde, karakterin masasında duran bir objeden bahsediliyor" or "Giriş kısmında karakterlerin buluştuğu salon olarak geçiyor").
 Only add props grounded in the text or correction, and keep references/context summaries in "kaynakAlinti".
 Respond in Turkish.
@@ -1892,9 +1894,7 @@ JSON Schema structure:
   "data": [
     {
       "ad": "string",
-      "kategori": "dekor" | "aksesuar",
-      "kaynakAlinti": "string",
-      "aciklama": "string"
+      "kaynakAlinti": "string"
     }
   ]
 }`;
