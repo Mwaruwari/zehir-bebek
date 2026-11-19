@@ -70,18 +70,6 @@ export interface Project {
   scenes?: Scene[];
   sceneBoundaries?: SceneBoundary[];
   analysis?: SceneAnalysis;
-  productionPlanSummary?: {
-    materialList: { item: string; qty: string; notes: string }[];
-    jobSequence: string[];
-    createdAt: string;
-  };
-  productionPlanDetailed?: {
-    materialList: { item: string; spec: string; qty: string; costEstimate?: string }[];
-    durationEstimate: string;
-    jobSequence: { step: string; phase: string; duration: string; team: string; steps: string[] }[];
-    teamRequirements: string[];
-    createdAt: string;
-  };
   movementEmotionData?: {
     sceneId: string;
     sceneName: string;

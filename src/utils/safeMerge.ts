@@ -29,20 +29,6 @@ export function safeMergeProject(existing: Project, incoming: Partial<Project>):
     }
   };
 
-  // Helper to merge object fields safely
-  const mergeObject = <K extends keyof Project>(key: K) => {
-    if (key in incoming) {
-      const incObj = incoming[key];
-      if (incObj && typeof incObj === 'object') {
-        merged[key] = incObj as any;
-        return;
-      }
-    }
-    const extObj = existing[key];
-    if (extObj && typeof extObj === 'object') {
-      merged[key] = extObj as any;
-    }
-  };
 
   // 1. Merge Scenes
   mergeArray('scenes');
@@ -78,11 +64,7 @@ export function safeMergeProject(existing: Project, incoming: Partial<Project>):
     merged.symbolicInstruction = existing.symbolicInstruction;
   }
 
-  // 6. Merge Production & Verbal Plans
-  mergeObject('productionPlanSummary');
-  mergeObject('productionPlanDetailed');
-
-  // 7. Preserve Script Text if incoming is empty
+  // 6. Preserve Script Text if incoming is empty
   if (existing.scriptText && (!incoming.scriptText || incoming.scriptText.trim() === '')) {
     merged.scriptText = existing.scriptText;
   }

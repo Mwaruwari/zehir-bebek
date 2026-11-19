@@ -582,20 +582,6 @@ function serverSafeMergeProject(existing: any, incoming: any): any {
     }
   };
 
-  const mergeObject = (key: string) => {
-    if (key in incoming) {
-      const incObj = incoming[key];
-      if (incObj && typeof incObj === 'object') {
-        merged[key] = incObj;
-        return;
-      }
-    }
-    const extObj = existing[key];
-    if (extObj && typeof extObj === 'object') {
-      merged[key] = extObj;
-    }
-  };
-
   // Merge Analysis
   if (existing.analysis || incoming.analysis) {
     const extAn = existing.analysis || {};
@@ -615,9 +601,6 @@ function serverSafeMergeProject(existing: any, incoming: any): any {
   mergeArray('narrativeBeats');
   mergeArray('symbolicAnalysis');
   mergeArray('symbolicMetaphors');
-
-  mergeObject('productionPlanSummary');
-  mergeObject('productionPlanDetailed');
 
   if (existing.scriptText && (!incoming.scriptText || incoming.scriptText.trim() === '')) {
     merged.scriptText = existing.scriptText;
@@ -2006,116 +1989,6 @@ function diffLists(oldList: any[], newList: any[], keyField: string): any[] {
 
 
 // 8. New Gemini-Powered Endpoints
-
-// A. Generate Production Plan
-app.post('/api/generate-production-plan', async (req, res) => {
-  try {
-    const { project } = req.body;
-
-    addLog('info', `Generating production plan via Gemini for project: ${project.name}`);
-
-    const propsList = project.analysis?.aksesuarlar || [];
-
-    const propsSummary = propsList.map((p: any) => `* AD: ${p.ad}, KATEGORİ: ${p.kategori}, DURUM: ${p.status || 'Belirlenmedi'}, SAHNELER: ${(p.kullanildigiSahneler || []).join(', ')}`).join('\n');
-
-    const promptText = `Sen profesyonel bir tiyatro dekor ve sahne imalat şefisin.
-Sana verilen oyun analizindeki aksesuar ve dekor listesini kullanarak bir imalat ve üretim planı oluşturacaksın.
-
-SAHNE DEKOR VE AKSESUAR LİSTESİ:
-${propsSummary || 'Henüz eklenmiş aksesuar yok.'}
-
-Senden aşağıdaki JSON yapısına tam olarak uyan bir üretim planı üretmeni rica ediyorum.
-- "summary": Özet plan. "materialList": [ { "item": "malzeme adı", "qty": "miktar", "notes": "açıklama/not" } ], "jobSequence": [ "temel iş sırası adımları (sırasıyla)" ]
-- "detailed": Detaylı plan. "materialList": [ { "item": "malzeme adı", "spec": "özellikleri", "qty": "miktar", "costEstimate": "tahmini maliyet (örn: 1500 TL)" } ], "durationEstimate": "Tahmini toplam süre (gün/saat)", "jobSequence": [ { "step": "aşama başlığı", "phase": "evre (örn: Hazırlık, Montaj, Boyama)", "duration": "süre", "team": "gerekli ekip", "steps": [ "detaylı alt adım 1", "detaylı alt adım 2" ] } ], "teamRequirements": [ "Gerekli atölye ekibi listesi ve rolleri" ]
-
-Çıktı sadece bu JSON olmalı, markdown kod bloğuna ALMA. Doğrudan geçerli bir JSON döndür.`;
-
-    const response = await generateContentWithRetry({
-      model: 'gemini-3.5-flash',
-      contents: promptText,
-      config: {
-        temperature: 0.2,
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            summary: {
-              type: Type.OBJECT,
-              properties: {
-                materialList: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      item: { type: Type.STRING },
-                      qty: { type: Type.STRING },
-                      notes: { type: Type.STRING }
-                    },
-                    required: ["item", "qty", "notes"]
-                  }
-                },
-                jobSequence: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING }
-                }
-              },
-              required: ["materialList", "jobSequence"]
-            },
-            detailed: {
-              type: Type.OBJECT,
-              properties: {
-                materialList: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      item: { type: Type.STRING },
-                      spec: { type: Type.STRING },
-                      qty: { type: Type.STRING },
-                      costEstimate: { type: Type.STRING }
-                    },
-                    required: ["item", "spec", "qty", "costEstimate"]
-                  }
-                },
-                durationEstimate: { type: Type.STRING },
-                jobSequence: {
-                  type: Type.ARRAY,
-                  items: {
-                    type: Type.OBJECT,
-                    properties: {
-                      step: { type: Type.STRING },
-                      phase: { type: Type.STRING },
-                      duration: { type: Type.STRING },
-                      team: { type: Type.STRING },
-                      steps: {
-                        type: Type.ARRAY,
-                        items: { type: Type.STRING }
-                      }
-                    },
-                    required: ["step", "phase", "duration", "team", "steps"]
-                  }
-                },
-                teamRequirements: {
-                  type: Type.ARRAY,
-                  items: { type: Type.STRING }
-                }
-              },
-              required: ["materialList", "durationEstimate", "jobSequence", "teamRequirements"]
-            }
-          },
-          required: ["summary", "detailed"]
-        }
-      }
-    });
-
-    const parsed = robustJsonParse<any>(response.text || '{}');
-    res.json(parsed);
-  } catch (error: any) {
-    console.error('Production plan generation error:', error);
-    addLog('error', `Production plan generation error: ${error.message}\nStack trace: ${error.stack}`);
-    res.status(500).json({ error: `Üretim planı üretilirken hata oluştu: ${error.message}` });
-  }
-});
 
 // B. Generate Movement and Emotion Graph Data
 const analysisProgresses: Record<string, { current: number, total: number, startTime: number }> = {};
